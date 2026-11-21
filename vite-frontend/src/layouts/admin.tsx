@@ -10,7 +10,7 @@ import { copyTextToClipboard } from '@/utils/clipboard';
 import { Logo } from '@/components/icons';
 import { updatePassword, getVersionInfo } from '@/api';
 import { safeLogout } from '@/utils/logout';
-import { siteConfig, SITE_CONFIG_UPDATED, CLIENT_DOWNLOAD_URL } from '@/config/site';
+import { siteConfig, SITE_CONFIG_UPDATED } from '@/config/site';
 import SkinPicker from '@/components/skin-picker';
 import ClientRecommendBanner from '@/components/client-recommend-banner';
 
@@ -203,17 +203,6 @@ export default function AdminLayout({
       icon: (
         <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
           <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
-        </svg>
-      ),
-      adminOnly: true
-    },
-    {
-      path: '/client-download',   // 只当 key 用,点了走 href
-      label: 'TMS 客户端',
-      href: CLIENT_DOWNLOAD_URL,
-      icon: (
-        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-          <path fillRule="evenodd" d="M3 5a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2h-2.22l.123.489.804.804A1 1 0 0113 18H7a1 1 0 01-.707-1.707l.804-.804L7.22 15H5a2 2 0 01-2-2V5zm5.771 7H5V5h10v7H8.771z" clipRule="evenodd" />
         </svg>
       ),
       adminOnly: true

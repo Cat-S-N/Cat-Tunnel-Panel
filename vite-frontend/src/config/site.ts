@@ -33,10 +33,8 @@ const getInitialConfig = () => {
 
 export const siteConfig = getInitialConfig();
 
-// 管理员菜单「客户端下载」:指向博客上的固定页面,不写死安装包地址。
-// 面板不会自动更新(要面板主点「更新面板」),写死的话以后换版本 / 换地址,旧面板上的链接全失效;
-// 博客页面按云端配置的最新版本拼 GitHub 下载地址,发版后自动跟上。
-export const CLIENT_DOWNLOAD_URL = 'https://3yuedaohang.com/tms-download.html?ref=panel';
+// 外部客户端下载链接（留空时不展示外部推广入口）
+export const CLIENT_DOWNLOAD_URL = '';
 
 // 缓存工具函数
 export const configCache = {

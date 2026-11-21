@@ -21,7 +21,7 @@ function readDismissed(): boolean {
 export default function ClientRecommendBanner() {
   const [dismissed, setDismissed] = useState<boolean>(readDismissed);
 
-  if (dismissed || !isAdmin()) return null;
+  if (!CLIENT_DOWNLOAD_URL || dismissed || !isAdmin()) return null;
 
   const close = () => {
     setDismissed(true);

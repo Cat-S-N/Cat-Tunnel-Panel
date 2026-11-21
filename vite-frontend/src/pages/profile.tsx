@@ -6,7 +6,7 @@ import { Input } from "@heroui/input";
 import { toast } from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { isWebViewFunc } from '@/utils/panel';
-import { siteConfig, CLIENT_DOWNLOAD_URL } from '@/config/site';
+import { siteConfig } from '@/config/site';
 import { updatePassword } from '@/api';
 import { safeLogout } from '@/utils/logout';
 interface PasswordForm {
@@ -150,18 +150,6 @@ export default function ProfilePage() {
       ),
       color: 'bg-purple-100 dark:bg-purple-500/20 text-purple-600 dark:text-purple-400',
       description: '配置网站设置'
-    },
-    {
-      path: '/client-download',   // 只当 key 用,点了走 href(和电脑端侧栏同一个地址)
-      label: 'TMS 客户端',
-      href: CLIENT_DOWNLOAD_URL,
-      icon: (
-        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-          <path fillRule="evenodd" d="M3 5a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2h-2.22l.123.489.804.804A1 1 0 0113 18H7a1 1 0 01-.707-1.707l.804-.804L7.22 15H5a2 2 0 01-2-2V5zm5.771 7H5V5h10v7H8.771z" clipRule="evenodd" />
-        </svg>
-      ),
-      color: 'bg-amber-100 dark:bg-amber-500/20 text-amber-600 dark:text-amber-400',
-      description: 'TMS Windows 客户端'
     }
   ];
 
