@@ -180,6 +180,8 @@ public class SingboxUtil {
                 return buildTuic(in, users);
             case "anytls":
                 return buildAnyTls(in, users);
+            case "socks":
+                return buildSocks(in, users);
             default:
                 return null;
         }
@@ -506,5 +508,54 @@ public class SingboxUtil {
     public static String buildAnyTlsLink(String password, String serverIp, Integer port, String sni, String remark) {
         return "anytls://" + password + "@" + uriHost(serverIp) + ":" + port
                 + "?insecure=1&sni=" + (sni == null ? "" : sni) + "#" + urlEncode(remark);
+    }
+
+    /**
+     * SOCKS5 用户名派生规则：由 InboundUser.uuid 去掉横杠取前 16 位。
+     * sing-box 入站配置、socks5:// 分享链接、Clash/Mihomo 订阅三处共用，确保凭据严格一致。
+     */
+    public static String socksUsername(String uuid) {
+        if (uuid == null || uuid.isEmpty()) {
+            return "";
+        }
+        String clean = uuid.replace("-", "");
+        return clean.length() > 16 ? clean.substring(0, 16) : clean;
+    }
+
+    /**
+     * SOCKS5 入站（无 TLS，强制账号密码认证，listen 一律 127.0.0.1，公网口由 gost 转发并限速）。
+     * 安全约束：sing-box 的 socks 入站在 users 为空时会退化为无认证开放代理，
+     * 因此当没有已启用用户时返回 null 不下发该入站，等分配用户后再随配置推送启用。
+     */
+    private static JSONObject buildSocks(Inbound in, List<InboundUser> users) {
+        JSONArray userArr = new JSONArray();
+        if (users != null) {
+            for (InboundUser u : users) {
+                if (u.getStatus() != null && u.getStatus() == 0) continue;
+                String username = socksUsername(u.getUuid());
+                if (username.isEmpty() || u.getPassword() == null || u.getPassword().isEmpty()) continue;
+                JSONObject uj = new JSONObject();
+                uj.put("username", username);
+                uj.put("password", u.getPassword());
+                userArr.add(uj);
+            }
+        }
+        if (userArr.isEmpty()) {
+            return null;
+        }
+        JSONObject inbound = new JSONObject();
+        inbound.put("type", "socks");
+        inbound.put("tag", in.getTag());
+        inbound.put("listen", "127.0.0.1");
+        inbound.put("listen_port", in.getListenPort());
+        inbound.put("users", userArr);
+        return inbound;
+    }
+
+    /** 生成 SOCKS5 客户端分享链接（socks5://username:password@ip:port#remark） */
+    public static String buildSocksLink(String uuid, String password, String serverIp, Integer port, String remark) {
+        String user = socksUsername(uuid);
+        return "socks5://" + urlEncode(user) + ":" + urlEncode(password) + "@" + uriHost(serverIp) + ":" + port
+                + "#" + urlEncode(remark);
     }
 }

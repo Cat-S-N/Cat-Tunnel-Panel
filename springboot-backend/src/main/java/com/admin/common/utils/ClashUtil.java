@@ -135,6 +135,13 @@ public class ClashUtil {
                 // 所以宁可不下发 —— 少一个节点好过整条订阅打不开。
                 return null;
             }
+            case "socks": {
+                p.put("type", "socks5");
+                p.put("username", SingboxUtil.socksUsername(uuid));
+                p.put("password", password);
+                p.put("udp", true);
+                return p;
+            }
             default:
                 return null;
         }

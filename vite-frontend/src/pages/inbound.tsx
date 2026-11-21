@@ -106,7 +106,7 @@ export default function InboundPage() {
   }, []);
 
   const protoLabel = (p: string) =>
-    (({ vless: "VLESS-Reality", trojan: "Trojan-Reality", vmess: "VMess", shadowsocks: "Shadowsocks-2022", hysteria2: "Hysteria2", tuic: "TUIC", anytls: "AnyTLS" } as any)[p] || p);
+    (({ vless: "VLESS-Reality", trojan: "Trojan-Reality", vmess: "VMess", shadowsocks: "Shadowsocks-2022", hysteria2: "Hysteria2", tuic: "TUIC", anytls: "AnyTLS", socks: "SOCKS5" } as any)[p] || p);
   const isReality = (p: string) => p === "vless" || p === "trojan";
 
   const handleCreate = async () => {
@@ -507,6 +507,8 @@ export default function InboundPage() {
                   ? "VMess over WebSocket。裸 ws(不带 TLS),给需要挂 Nginx/Caddy 反代或 CDN 的人用;直连场景没必要选它,不如用 Reality"
                   : ["hysteria2", "tuic", "anytls"].includes(createForm.protocol)
                   ? "自签证书(无域名);客户端需勾选\"允许不安全/insecure\"。Hy2/TUIC 是 QUIC,快"
+                  : createForm.protocol === "socks"
+                  ? "SOCKS5:强制账号密码认证(明文协议,适合业务代理/指纹浏览器/中转场景,不建议直接跨墙裸连)"
                   : "Shadowsocks-2022:无 TLS、任何客户端都通,简单稳"
               }
             >
@@ -517,6 +519,7 @@ export default function InboundPage() {
               <SelectItem key="hysteria2">Hysteria2(QUIC,快,自签证书)</SelectItem>
               <SelectItem key="tuic">TUIC(QUIC,自签证书)</SelectItem>
               <SelectItem key="anytls">AnyTLS(自签证书)</SelectItem>
+              <SelectItem key="socks">SOCKS5(账号密码认证,适合中转/业务代理)</SelectItem>
             </Select>
             <Select
               label="机器"

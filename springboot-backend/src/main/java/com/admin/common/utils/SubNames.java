@@ -64,6 +64,7 @@ public final class SubNames {
             case "hysteria2":   return "Hysteria2";
             case "tuic":        return "TUIC";
             case "anytls":      return "AnyTLS";
+            case "socks":       return "SOCKS5";
             default:            return "VLESS";
         }
     }

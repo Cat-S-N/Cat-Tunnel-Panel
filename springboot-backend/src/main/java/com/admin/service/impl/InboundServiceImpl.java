@@ -164,6 +164,9 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
                 }
                 in.setConfigJson(tcfg.toJSONString());
             }
+        } else if ("socks".equals(protocol)) {
+            // SOCKS5 入站(无 TLS,强制账号密码认证;用户分配时按 uuid 派生 username + password)
+            in.setSecurity("none");
         } else if ("hysteria2".equals(protocol) || "tuic".equals(protocol) || "anytls".equals(protocol)) {
             // 自签 TLS(Hy2/TUIC 走 QUIC/UDP,AnyTLS 走 TCP;客户端 insecure);证书由节点端自动生成
             in.setSecurity("tls");
@@ -1144,7 +1147,7 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
         if ("hysteria2".equalsIgnoreCase(p) || "tuic".equalsIgnoreCase(p)) {
             return isDualStackListen(tunnel.getUdpListenAddr());
         }
-        if ("shadowsocks".equalsIgnoreCase(p)) {
+        if ("shadowsocks".equalsIgnoreCase(p) || "socks".equalsIgnoreCase(p)) {
             return isDualStackListen(tunnel.getTcpListenAddr()) && isDualStackListen(tunnel.getUdpListenAddr());
         }
         return isDualStackListen(tunnel.getTcpListenAddr());
@@ -1205,6 +1208,8 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
                 return SingboxUtil.buildTuicLink(uuid, password, ip, port, in.getSni(), remark);
             case "anytls":
                 return SingboxUtil.buildAnyTlsLink(password, ip, port, in.getSni(), remark);
+            case "socks":
+                return SingboxUtil.buildSocksLink(uuid, password, ip, port, remark);
             default: // vless
                 return SingboxUtil.buildVlessRealityLink(uuid, ip, port, in.getSni(), in.getPublicKey(), in.getShortId(), remark);
         }

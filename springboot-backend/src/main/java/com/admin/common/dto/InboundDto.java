@@ -13,7 +13,7 @@ public class InboundDto {
     @NotNull(message = "节点不能为空")
     private Long nodeId;
 
-    /** 协议:shadowsocks(默认) / vless */
+    /** 协议:shadowsocks(默认) / vless / trojan / vmess / hysteria2 / tuic / anytls / socks */
     private String protocol;
 
     /** sing-box 本机监听口,可空(自动分配 40000+) */
