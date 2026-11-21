@@ -496,6 +496,7 @@ export default function InboundPage() {
           <ModalBody className="space-y-3">
             <Select
               label="协议"
+              maxListboxHeight={400}
               selectedKeys={[createForm.protocol]}
               onSelectionChange={(k) => setCreateForm({ ...createForm, protocol: String(Array.from(k)[0]) })}
               description={
