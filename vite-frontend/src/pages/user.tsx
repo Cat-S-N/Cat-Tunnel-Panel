@@ -1604,7 +1604,7 @@ export default function UserPage() {
       </Modal>
 
       {/* 订阅线路(合体面板:车友的每台机器一条订阅,直连/中转各一条) */}
-      <Modal isOpen={isSubModalOpen} onClose={onSubModalClose} size="2xl" backdrop="blur" placement="center">
+      <Modal isOpen={isSubModalOpen} onClose={onSubModalClose} size="2xl" scrollBehavior="inside" backdrop="blur" placement="center">
         <ModalContent>
           <ModalHeader>🔗 {subUserName} 的订阅线路({subLines.length})</ModalHeader>
           <ModalBody className="space-y-3">
@@ -1619,7 +1619,7 @@ export default function UserPage() {
               每台机器一条订阅(直连 / 中转各一条)。发对应的一条给车友:v2rayN → 订阅 → 添加 → 粘贴 → 更新。
             </div>
 
-            {subAllToken && subLines.length > 1 && (
+            {subAllToken && subLines.length >= 1 && (
               <div className="border border-primary/40 bg-primary/5 rounded-lg p-3 space-y-2">
                 <div className="flex items-center gap-2 flex-wrap">
                   <Chip size="sm" color="primary" variant="flat">⭐ 全部线路</Chip>

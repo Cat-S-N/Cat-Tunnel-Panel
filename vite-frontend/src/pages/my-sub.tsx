@@ -133,7 +133,7 @@ export default function MySubPage() {
         />
       )}
 
-      {!loading && allSubToken && lines.length > 1 && (
+      {!loading && allSubToken && lines.length >= 1 && (
         <Card className="border border-primary/40 bg-primary/5">
           <CardBody className="space-y-3">
             <div className="flex items-center gap-2 flex-wrap">

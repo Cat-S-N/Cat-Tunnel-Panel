@@ -424,7 +424,7 @@ export default function RelayPage() {
       )}
 
       {/* 「我自己用」结果:直接把订阅链接给出来 */}
-      <Modal isOpen={selfOpen} onClose={() => setSelfOpen(false)} size="2xl">
+      <Modal isOpen={selfOpen} onClose={() => setSelfOpen(false)} size="2xl" scrollBehavior="inside">
         <ModalContent>
           <ModalHeader className="flex flex-col gap-1">
             <span>🔑 已开给你自己(不限速 · 不限流量 · 不限到期)</span>
@@ -467,7 +467,7 @@ export default function RelayPage() {
       </Modal>
 
       {/* 分配用户(复用协议管理的整机分配) */}
-      <Modal isOpen={assignOpen} onClose={() => setAssignOpen(false)}>
+      <Modal isOpen={assignOpen} onClose={() => setAssignOpen(false)} scrollBehavior="inside">
         <ModalContent>
           <ModalHeader>👤 中转分配「{assignForm.nodeName} → {assignForm.landingName}」</ModalHeader>
           <ModalBody className="space-y-3">
