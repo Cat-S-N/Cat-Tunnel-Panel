@@ -5,6 +5,7 @@ import com.admin.common.aop.LogAnnotation;
 import com.admin.common.annotation.RequireRole;
 import com.admin.common.dto.*;
 import com.admin.common.lang.R;
+import com.admin.entity.User;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
@@ -22,6 +23,20 @@ import java.util.Map;
 @CrossOrigin
 @RequestMapping("/api/v1/user")
 public class UserController extends BaseController {
+
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/quantumult-x")
+    public R quantumultX(@Validated @RequestBody QuantumultXPermissionDto dto) {
+        if (userService.getById(dto.getId()) == null) {
+            return R.err("用户不存在");
+        }
+        User update = new User();
+        update.setId(dto.getId());
+        update.setQuantumultXEnabled(Boolean.TRUE.equals(dto.getEnabled()) ? 1 : 0);
+        update.setUpdatedTime(System.currentTimeMillis());
+        return userService.updateById(update) ? R.ok("权限已保存") : R.err("保存失败");
+    }
 
     @LogAnnotation
     @PostMapping("/login")

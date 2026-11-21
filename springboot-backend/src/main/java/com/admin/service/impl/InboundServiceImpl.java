@@ -9,6 +9,7 @@ import com.admin.common.lang.R;
 import com.admin.common.utils.ClashUtil;
 import com.admin.common.utils.SingboxUtil;
 import com.admin.common.utils.SubNames;
+import com.admin.common.utils.VmessTlsIngress;
 import com.admin.entity.Forward;
 import com.admin.entity.Inbound;
 import com.admin.entity.InboundLine;
@@ -990,12 +991,30 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
         }
     }
 
+    static String shadowsocksConnectHost(JSONObject cfg, String original) {
+        String address = cfg.getString("connectIpv4");
+        if (original != null && original.contains(":")) {
+            return original;
+        }
+        if (address == null || !address.matches("[0-9]{1,3}(\\.[0-9]{1,3}){3}")) {
+            return original;
+        }
+        for (String part : address.split("\\.")) {
+            if (Integer.parseInt(part) <= 255 && (part.length() <= 1 || !part.startsWith("0"))) continue;
+            return original;
+        }
+        return address;
+    }
+
     private static java.util.Map<String, Object> clashProxy(String name, Inbound in, InboundUser iu,
                                                             String ip, Forward forward) {
         String ssMethod = null;
+        String proxyPassword = iu.getPassword();
         if ("shadowsocks".equals(in.getProtocol())) {
             JSONObject cfg = JSON.parseObject(in.getConfigJson() == null ? "{}" : in.getConfigJson());
             ssMethod = cfg.getString("method");
+            proxyPassword = cfg.getString("password");
+            ip = shadowsocksConnectHost(cfg, ip);
         }
         // vmess 可能带 ws:和链接订阅读同一份 configJson,两边必须一致
         String wsPath = null, wsHost = null;
@@ -1007,13 +1026,17 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
                 wsHost = vc.getString("host");
             }
         }
-        return ClashUtil.toProxy(
+        java.util.Map<String, Object> proxy = ClashUtil.toProxy(
                 in.getProtocol(),
                 name,
                 ip, forward.getInPort(),
-                iu.getUuid(), iu.getPassword(), in.getSni(),
+                iu.getUuid(), proxyPassword, in.getSni(),
                 in.getPublicKey(), in.getShortId(), ssMethod,
                 wsPath, wsHost);
+        if ("vmess".equalsIgnoreCase(in.getProtocol()) && wsPath != null) {
+            VmessTlsIngress.apply(proxy, JSON.parseObject(in.getConfigJson()), forward.getInPort());
+        }
+        return proxy;
     }
 
     /** 取(必要时生成)该车友的「全部线路」聚合订阅 token */
@@ -1162,7 +1185,7 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
         switch (in.getProtocol() == null ? "" : in.getProtocol()) {
             case "shadowsocks": {
                 JSONObject cfg = JSON.parseObject(in.getConfigJson() == null ? "{}" : in.getConfigJson());
-                return SingboxUtil.buildShadowsocksLink(ip, port, cfg.getString("method"), cfg.getString("password"), remark);
+                return SingboxUtil.buildShadowsocksLink(shadowsocksConnectHost(cfg, ip), port, cfg.getString("method"), cfg.getString("password"), remark);
             }
             case "vmess":
             {
@@ -1170,8 +1193,9 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
                 // 否则客户端拿到的链接是 tcp 的,连不上(服务端在 ws 上等)
                 JSONObject vcfg = in.getConfigJson() == null || in.getConfigJson().isEmpty()
                         ? new JSONObject() : JSON.parseObject(in.getConfigJson());
-                return SingboxUtil.buildVmessLink(uuid, ip, port, remark,
+                String link = SingboxUtil.buildVmessLink(uuid, ip, port, remark,
                         vcfg.getString("net"), vcfg.getString("path"), vcfg.getString("host"));
+                return VmessTlsIngress.applyLink(link, vcfg, port);
             }
             case "trojan":
                 return SingboxUtil.buildTrojanRealityLink(password, ip, port, in.getSni(), in.getPublicKey(), in.getShortId(), remark);
@@ -1184,6 +1208,25 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
             default: // vless
                 return SingboxUtil.buildVlessRealityLink(uuid, ip, port, in.getSni(), in.getPublicKey(), in.getShortId(), remark);
         }
+    }
+
+    @Override
+    public boolean quantumultXAllowed(String token) {
+        if (token == null || !token.matches("[A-Za-z0-9_-]{16,128}")) {
+            return false;
+        }
+        User owner = userMapper.selectOne(
+                new QueryWrapper<User>().eq("all_sub_token", token).last("limit 1"));
+        if (owner == null) {
+            InboundLine line = inboundLineMapper.selectOne(
+                    new QueryWrapper<InboundLine>().eq("sub_token", token).last("limit 1"));
+            if (line != null) {
+                owner = userMapper.selectById(line.getUserId());
+            }
+        }
+        return owner != null
+                && Integer.valueOf(1).equals(owner.getQuantumultXEnabled())
+                && !com.admin.common.utils.AccountLimits.accountBlocked(owner, System.currentTimeMillis());
     }
 
     @Override
@@ -1357,6 +1400,7 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
         User u = userMapper.selectById(userId);
         if (u != null) {
             result.put("allSubToken", ensureAllSubToken(u));
+            result.put("quantumultXEnabled", Integer.valueOf(1).equals(u.getQuantumultXEnabled()));
         }
         return R.ok(result);
     }

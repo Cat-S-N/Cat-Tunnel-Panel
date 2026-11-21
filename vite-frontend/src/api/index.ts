@@ -21,6 +21,7 @@ export const createUser = (data: any) => Network.post("/user/create", data);
 export const getAllUsers = (pageData: any = {}) => Network.post("/user/list", pageData);
 export const updateUser = (data: any) => Network.post("/user/update", data);
 export const deleteUser = (id: number) => Network.post("/user/delete", { id });
+export const setQuantumultXPermission = (id: number, enabled: boolean) => Network.post("/user/quantumult-x", { id, enabled });
 export const getUserPackageInfo = () => Network.post("/user/package");
 
 // 转发机CRUD操作 - 全部使用POST请求

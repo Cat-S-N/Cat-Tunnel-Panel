@@ -12,6 +12,7 @@ import com.admin.service.InboundService;
 import com.alibaba.fastjson.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Objects;
@@ -23,6 +24,15 @@ public class OpenApiController extends BaseController {
 
     @Autowired
     private InboundService inboundService;
+
+    /** Quantumult X 订阅源（由 OpenResty quanx.lua 鉴权后拉取转换） */
+    @GetMapping(value = "/quanx-source", produces = "text/plain; charset=utf-8")
+    public ResponseEntity<String> quantumultXSource(@RequestParam("token") String token) {
+        if (!inboundService.quantumultXAllowed(token)) {
+            return ResponseEntity.status(403).header("Cache-Control", "no-store").body("");
+        }
+        return ResponseEntity.ok().header("Cache-Control", "no-store").body(inboundService.buildSubscription(token));
+    }
 
     /** 订阅:按 token 返回该用户所有协议链接的 base64(客户端订阅用,免登录) */
     @GetMapping("/sub")

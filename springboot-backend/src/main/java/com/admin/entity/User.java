@@ -47,6 +47,9 @@ public class User extends BaseEntity {
 
     private Integer roleId;
 
+    /** 是否允许使用 Quantumult X 订阅（1=允许，0=禁止） */
+    private Integer quantumultXEnabled;
+
     private Long expTime;
 
     private Long flow;

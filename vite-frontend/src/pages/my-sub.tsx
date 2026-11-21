@@ -9,6 +9,7 @@ import { isAdmin } from "@/utils/auth";
 import { JwtUtil } from "@/utils/jwt";
 import { copyTextToClipboard } from "@/utils/clipboard";
 import { SubQrToggle } from "@/components/sub-qr";
+import { QuanxPermission, QuanxSubscription } from "@/components/quanx-subscription";
 import { getSubBase } from "@/utils/sub-base";
 
 /**
@@ -21,6 +22,7 @@ export default function MySubPage() {
   const [lines, setLines] = useState<any[]>([]);
   // 「全部线路」聚合订阅:一条链接包含他所有线路,以后新开线路也不用重发
   const [allSubToken, setAllSubToken] = useState<string>("");
+  const [quantumultXEnabled, setQuantumultXEnabled] = useState<boolean>(false);
   const [account, setAccount] = useState<any>(null); // 账号到期 / 账号总流量 / 是否被停用
   const [loading, setLoading] = useState(true);
 
@@ -42,6 +44,7 @@ export default function MySubPage() {
         const d: any = ln.data;
         setLines(Array.isArray(d) ? d : (d?.lines || []));
         if (!Array.isArray(d) && d?.allSubToken) setAllSubToken(d.allSubToken);
+        setQuantumultXEnabled(!Array.isArray(d) && d?.quantumultXEnabled === true);
       }
       if (pkg.code === 0) setAccount(pkg.data?.userInfo || null);
     } catch (e) {
@@ -119,6 +122,14 @@ export default function MySubPage() {
         </Card>
       )}
 
+      {isAdmin() && JwtUtil.getUserIdFromToken() != null && (
+        <QuanxPermission
+          userId={JwtUtil.getUserIdFromToken()!}
+          enabled={quantumultXEnabled}
+          onChange={setQuantumultXEnabled}
+        />
+      )}
+
       {!loading && allSubToken && lines.length > 1 && (
         <Card className="border border-primary/40 bg-primary/5">
           <CardBody className="space-y-3">
@@ -160,6 +171,7 @@ export default function MySubPage() {
                 Clash / Mihomo 版
               </Button>
             </div>
+            {quantumultXEnabled && <QuanxSubscription base={subBase} token={allSubToken} />}
             <div className="text-xs text-default-400">
               节点名前面带线路标识(如「香港机器 VLESS」),方便区分从哪出口。
               以后管理员给你新开线路,更新一下订阅就自动出现,不用再要新链接。
@@ -280,6 +292,7 @@ export default function MySubPage() {
                       </>
                     )}
                   </div>
+                  {quantumultXEnabled && <QuanxSubscription base={subBase} token={ln.subToken} />}
                 </CardBody>
               </Card>
             );

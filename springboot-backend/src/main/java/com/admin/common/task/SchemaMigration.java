@@ -33,6 +33,10 @@ public class SchemaMigration implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
+        // Quantumult X 订阅权限开关
+        addColumnIfMissing("user", "quantumult_x_enabled",
+                "ALTER TABLE `user` ADD COLUMN `quantumult_x_enabled` TINYINT NOT NULL DEFAULT 0");
+
         // 转发机的「连接域名」:填了就用它生成节点链接,车友看到的是域名而不是车主的 IP
         addColumnIfMissing("node", "domain",
                 "ALTER TABLE `node` ADD COLUMN `domain` VARCHAR(255) NULL COMMENT '连接域名(可选,留空用 server_ip)'");

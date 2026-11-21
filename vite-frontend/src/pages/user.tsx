@@ -26,6 +26,7 @@ import { Spinner } from "@heroui/spinner";
 import { Progress } from "@heroui/progress";
 
 import toast from 'react-hot-toast';
+import { QuanxPermission, QuanxSubscription } from '@/components/quanx-subscription';
 import { 
   User, 
   UserForm, 
@@ -180,6 +181,7 @@ export default function UserPage() {
   const { isOpen: isSubModalOpen, onOpen: onSubModalOpen, onClose: onSubModalClose } = useDisclosure();
   const [subLines, setSubLines] = useState<any[]>([]);
   const [subAllToken, setSubAllToken] = useState<string>('');
+  const [subQuantumultXEnabled, setSubQuantumultXEnabled] = useState<boolean>(false);
   const [subUserName, setSubUserName] = useState<string>('');
   // 订阅链接开头:设了「订阅地址(给车友的)」就用它,没设 = 网页地址(和以前一样)。打开弹窗前先取好
   const [subBase, setSubBase] = useState<string>(window.location.origin);
@@ -196,6 +198,7 @@ export default function UserPage() {
       const d: any = res.code === 0 ? res.data : null;
       const lines = Array.isArray(d) ? d : (d?.lines || []);
       setSubAllToken(!Array.isArray(d) && d?.allSubToken ? d.allSubToken : '');
+      setSubQuantumultXEnabled(!Array.isArray(d) && d?.quantumultXEnabled === true);
       if (!lines.length) {
         toast.error('该车友还没分配任何线路,先去「协议管理」或「中转」分配');
         return;
@@ -1536,6 +1539,13 @@ export default function UserPage() {
         <ModalContent>
           <ModalHeader>🔗 {subUserName} 的订阅线路({subLines.length})</ModalHeader>
           <ModalBody className="space-y-3">
+            {subUserId != null && (
+              <QuanxPermission
+                userId={subUserId}
+                enabled={subQuantumultXEnabled}
+                onChange={setSubQuantumultXEnabled}
+              />
+            )}
             <div className="text-small text-default-500">
               每台机器一条订阅(直连 / 中转各一条)。发对应的一条给车友:v2rayN → 订阅 → 添加 → 粘贴 → 更新。
             </div>
@@ -1580,6 +1590,7 @@ export default function UserPage() {
                     复制 Clash 版
                   </Button>
                 </div>
+                {subQuantumultXEnabled && <QuanxSubscription base={subBase} token={subAllToken} />}
                 <div className="text-tiny text-default-400">
                   节点名自带线路标识。以后给他新开线路不用再发链接,他更新订阅就有了。
                   线路到期或跑满流量会自动从这条订阅里消失。
@@ -1711,6 +1722,7 @@ export default function UserPage() {
                       删除
                     </Button>
                   </div>
+                  {subQuantumultXEnabled && <QuanxSubscription base={subBase} token={ln.subToken} />}
                 </div>
               );
             })}
