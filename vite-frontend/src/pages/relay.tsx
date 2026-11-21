@@ -145,16 +145,49 @@ export default function RelayPage() {
     setBuildLoading(false);
   };
 
-  const openNodeAssign = (n: any, landingId: any, landingName: string, count: number) => {
-    setAssignForm({ nodeId: n.id, nodeName: n.name, landingId, landingName, protocolCount: count, userId: null, speedId: null, expDate: null, flowGb: null });
+  const openNodeAssign = (n: any, landingId: any, landingName: string, lineInbounds: any[]) => {
+    setAssignForm({
+      nodeId: n.id,
+      nodeName: n.name,
+      landingId,
+      landingName,
+      protocolCount: lineInbounds.length,
+      inbounds: lineInbounds,
+      inboundIds: lineInbounds.map((ib: any) => ib.id),
+      userId: null,
+      speedId: null,
+      expDate: null,
+      flowGb: null,
+    });
     setAssignOpen(true);
+  };
+
+  const toggleAssignInbound = (id: number) => {
+    setAssignForm((prev: any) => {
+      const exists = (prev.inboundIds || []).includes(id);
+      return {
+        ...prev,
+        inboundIds: exists
+          ? prev.inboundIds.filter((x: number) => x !== id)
+          : [...(prev.inboundIds || []), id],
+      };
+    });
   };
 
   const handleNodeAssign = async () => {
     if (!assignForm.userId) return toast.error("请选择车友");
+    if (!assignForm.inboundIds || assignForm.inboundIds.length === 0) {
+      return toast.error("请至少选择一个协议");
+    }
     setAssignLoading(true);
     try {
-      const payload: any = { userId: assignForm.userId, nodeId: assignForm.nodeId, relay: true, landingId: assignForm.landingId };
+      const payload: any = {
+        userId: assignForm.userId,
+        nodeId: assignForm.nodeId,
+        relay: true,
+        landingId: assignForm.landingId,
+        inboundIds: assignForm.inboundIds,
+      };
       if (assignForm.speedId) payload.speedId = assignForm.speedId;
       // 到期直接选日期(当天 23:59:59 截止),续费就是把日期往后改
       if (assignForm.expDate) payload.expTime = new Date(`${assignForm.expDate}T23:59:59`).getTime();
@@ -250,7 +283,7 @@ export default function RelayPage() {
                   ))}
                 </div>
                 <div className="flex gap-2">
-                  <Button size="sm" color="primary" className="flex-1" onPress={() => openNodeAssign(n, ln.landingId, landingName, ln.inbounds.length)}>
+                  <Button size="sm" color="primary" className="flex-1" onPress={() => openNodeAssign(n, ln.landingId, landingName, ln.inbounds)}>
                     👤 分配用户
                   </Button>
                   {/* 自己用不必先建车友:一键开给当前管理员,不限速不限量不到期 */}
@@ -326,7 +359,7 @@ export default function RelayPage() {
           <ModalHeader>👤 中转分配「{assignForm.nodeName} → {assignForm.landingName}」</ModalHeader>
           <ModalBody className="space-y-3">
             <div className="text-sm text-default-500">
-              把这条中转的 <b>{assignForm.protocolCount} 个协议</b> 一次分给车友,出口走 {assignForm.landingName}。分配完到「用户管理」拿这条中转订阅链接。
+              勾选要分给车友的协议（已选 <b>{(assignForm.inboundIds || []).length} / {assignForm.protocolCount} 个</b>），出口走 {assignForm.landingName}。分配完到「用户管理」拿这条中转订阅链接。
             </div>
             <Select
               label="子账号(车友)"
@@ -336,6 +369,48 @@ export default function RelayPage() {
             >
               {users.map((u) => (<SelectItem key={u.id}>{u.user}</SelectItem>))}
             </Select>
+            <div className="space-y-2 rounded-lg border border-default-200 p-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-xs font-medium text-default-600">
+                  选择协议 ({(assignForm.inboundIds || []).length}/{assignForm.protocolCount})
+                </span>
+                <div className="flex gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="flat"
+                    className="h-6 min-w-0 px-2 text-xs"
+                    onPress={() => setAssignForm((p: any) => ({ ...p, inboundIds: (p.inbounds || []).map((ib: any) => ib.id) }))}
+                  >
+                    全选
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="light"
+                    className="h-6 min-w-0 px-2 text-xs"
+                    onPress={() => setAssignForm((p: any) => ({ ...p, inboundIds: [] }))}
+                  >
+                    清空
+                  </Button>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {(assignForm.inbounds || []).map((ib: any) => {
+                  const selected = (assignForm.inboundIds || []).includes(ib.id);
+                  return (
+                    <Chip
+                      key={ib.id}
+                      size="sm"
+                      color={selected ? (ib.protocol === "socks" ? "secondary" : "primary") : "default"}
+                      variant={selected ? "solid" : "bordered"}
+                      className="cursor-pointer select-none"
+                      onClick={() => toggleAssignInbound(ib.id)}
+                    >
+                      {selected ? "✓ " : ""}{protoLabel(ib.protocol)}{ib.remark ? ` (${ib.remark})` : ""}
+                    </Chip>
+                  );
+                })}
+              </div>
+            </div>
             <Select
               label="限速规则(可空)"
               placeholder="不限速"

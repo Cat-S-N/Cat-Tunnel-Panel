@@ -48,9 +48,9 @@ export default function InboundPage() {
   const [oneClickSni, setOneClickSni] = useState<string>(DEFAULT_SNI);
   const [oneClickLoading, setOneClickLoading] = useState(false);
 
-  // 机器卡「分配用户」:把整台机器的协议分给车友(只分配,链接去「用户管理」拿)
+  // 机器卡「分配用户」:可按需勾选要分配给车友的协议(默认全选;链接去「用户管理」拿)
   const [assignOpen, setAssignOpen] = useState(false);
-  const [assignForm, setAssignForm] = useState<any>({ nodeId: null, nodeName: "", protocolCount: 0, userId: null, speedId: null, expDate: null, flowGb: null });
+  const [assignForm, setAssignForm] = useState<any>({ nodeId: null, nodeName: "", protocolCount: 0, inbounds: [], inboundIds: [], userId: null, speedId: null, expDate: null, flowGb: null });
   const [assignLoading, setAssignLoading] = useState(false);
 
   // 「我自己用」:一键开给当前管理员自己,完事直接把订阅链接弹出来
@@ -165,16 +165,45 @@ export default function InboundPage() {
     setOneClickLoading(false);
   };
 
-  const openNodeAssign = (n: any, count: number) => {
-    setAssignForm({ nodeId: n.id, nodeName: n.name, protocolCount: count, userId: null, speedId: null, expDate: null, flowGb: null });
+  const openNodeAssign = (n: any, nodeInbounds: any[]) => {
+    setAssignForm({
+      nodeId: n.id,
+      nodeName: n.name,
+      protocolCount: nodeInbounds.length,
+      inbounds: nodeInbounds,
+      inboundIds: nodeInbounds.map((ib: any) => ib.id),
+      userId: null,
+      speedId: null,
+      expDate: null,
+      flowGb: null,
+    });
     setAssignOpen(true);
+  };
+
+  const toggleAssignInbound = (id: number) => {
+    setAssignForm((prev: any) => {
+      const exists = (prev.inboundIds || []).includes(id);
+      return {
+        ...prev,
+        inboundIds: exists
+          ? prev.inboundIds.filter((x: number) => x !== id)
+          : [...(prev.inboundIds || []), id],
+      };
+    });
   };
 
   const handleNodeAssign = async () => {
     if (!assignForm.userId) return toast.error("请选择车友");
+    if (!assignForm.inboundIds || assignForm.inboundIds.length === 0) {
+      return toast.error("请至少选择一个协议");
+    }
     setAssignLoading(true);
     try {
-      const payload: any = { userId: assignForm.userId, nodeId: assignForm.nodeId };
+      const payload: any = {
+        userId: assignForm.userId,
+        nodeId: assignForm.nodeId,
+        inboundIds: assignForm.inboundIds,
+      };
       if (assignForm.speedId) payload.speedId = assignForm.speedId;
       // 到期直接选日期(当天 23:59:59 截止),比填"多少天"直观,续费也只是把日期往后改
       if (assignForm.expDate) payload.expTime = new Date(`${assignForm.expDate}T23:59:59`).getTime();
@@ -325,7 +354,7 @@ export default function InboundPage() {
                   整机一条订阅:分配给车友后,一条订阅链接导入客户端即拿到上面全部协议,以后加新协议自动更新。
                 </div>
                 <div className="flex gap-2">
-                  <Button size="sm" color="primary" className="flex-1" onPress={() => openNodeAssign(n, nodeInbounds.length)}>
+                  <Button size="sm" color="primary" className="flex-1" onPress={() => openNodeAssign(n, nodeInbounds)}>
                     👤 分配用户
                   </Button>
                   {/* 自己用不必先建车友再分配:一键开给当前管理员,不限速不限量不到期 */}
@@ -407,7 +436,7 @@ export default function InboundPage() {
           <ModalHeader>👤 给车友分配「{assignForm.nodeName}」</ModalHeader>
           <ModalBody className="space-y-3">
             <div className="text-sm text-default-500">
-              把这台机器上的 <b>{assignForm.protocolCount} 个协议</b> 一次分给车友。分配完到「用户管理」页,点该车友的「🔗 订阅链接」拿链接发给他。
+              勾选要分给车友的协议（已选 <b>{(assignForm.inboundIds || []).length} / {assignForm.protocolCount} 个</b>）。分配完到「用户管理」页，点该车友的「🔗 订阅链接」查看。
             </div>
             <Select
               label="子账号(车友)"
@@ -417,6 +446,63 @@ export default function InboundPage() {
             >
               {users.map((u) => (<SelectItem key={u.id}>{u.user}</SelectItem>))}
             </Select>
+            <div className="space-y-2 rounded-lg border border-default-200 p-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-xs font-medium text-default-600">
+                  选择协议 ({(assignForm.inboundIds || []).length}/{assignForm.protocolCount})
+                </span>
+                <div className="flex gap-1.5">
+                  <Button
+                    size="sm"
+                    variant="flat"
+                    className="h-6 min-w-0 px-2 text-xs"
+                    onPress={() => setAssignForm((p: any) => ({ ...p, inboundIds: (p.inbounds || []).map((ib: any) => ib.id) }))}
+                  >
+                    全选
+                  </Button>
+                  {(assignForm.inbounds || []).some((ib: any) => ib.protocol === "socks") && (
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      className="h-6 min-w-0 px-2 text-xs"
+                      onPress={() =>
+                        setAssignForm((p: any) => ({
+                          ...p,
+                          inboundIds: (p.inbounds || []).filter((ib: any) => ib.protocol !== "socks").map((ib: any) => ib.id),
+                        }))
+                      }
+                    >
+                      不含 SOCKS5
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="light"
+                    className="h-6 min-w-0 px-2 text-xs"
+                    onPress={() => setAssignForm((p: any) => ({ ...p, inboundIds: [] }))}
+                  >
+                    清空
+                  </Button>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {(assignForm.inbounds || []).map((ib: any) => {
+                  const selected = (assignForm.inboundIds || []).includes(ib.id);
+                  return (
+                    <Chip
+                      key={ib.id}
+                      size="sm"
+                      color={selected ? (ib.protocol === "socks" ? "secondary" : "primary") : "default"}
+                      variant={selected ? "solid" : "bordered"}
+                      className="cursor-pointer select-none"
+                      onClick={() => toggleAssignInbound(ib.id)}
+                    >
+                      {selected ? "✓ " : ""}{protoLabel(ib.protocol)}{ib.remark ? ` (${ib.remark})` : ""}
+                    </Chip>
+                  );
+                })}
+              </div>
+            </div>
             <Select
               label="限速规则(可空)"
               placeholder="不限速"
