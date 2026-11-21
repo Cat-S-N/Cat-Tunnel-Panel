@@ -496,7 +496,7 @@ export default function InboundPage() {
           <ModalBody className="space-y-3">
             <Select
               label="协议"
-              maxListboxHeight={400}
+              maxListboxHeight={450}
               selectedKeys={[createForm.protocol]}
               onSelectionChange={(k) => setCreateForm({ ...createForm, protocol: String(Array.from(k)[0]) })}
               description={
@@ -520,6 +520,7 @@ export default function InboundPage() {
               <SelectItem key="hysteria2">Hysteria2(QUIC,快,自签证书)</SelectItem>
               <SelectItem key="tuic">TUIC(QUIC,自签证书)</SelectItem>
               <SelectItem key="anytls">AnyTLS(自签证书)</SelectItem>
+              <SelectItem key="shadowsocks">Shadowsocks-2022(无TLS,全客户端通用)</SelectItem>
               <SelectItem key="socks">SOCKS5(账号密码认证,适合中转/业务代理)</SelectItem>
             </Select>
             <Select
