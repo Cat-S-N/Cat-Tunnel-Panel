@@ -8,7 +8,7 @@ import { toast } from 'react-hot-toast';
 import { copyTextToClipboard } from '@/utils/clipboard';
 
 import { Logo } from '@/components/icons';
-import { updatePassword, getVersionInfo } from '@/api';
+import { updatePassword, getVersionInfo, getMyPermissions } from '@/api';
 import { safeLogout } from '@/utils/logout';
 import { siteConfig, SITE_CONFIG_UPDATED } from '@/config/site';
 import SkinPicker from '@/components/skin-picker';
@@ -19,6 +19,8 @@ interface MenuItem {
   label: string;
   icon: React.ReactNode;
   adminOnly?: boolean;
+  /** 允许被分配了特定节点管理权限的子管理员访问 */
+  nodeAdminAllowed?: boolean;
   /** 只给子账号(车友)看:管理员不显示,避免和管理页重复 */
   userOnly?: boolean;
   /** 外链:点了在新窗口打开,不走路由 */
@@ -47,6 +49,7 @@ export default function AdminLayout({
   const [mobileMenuVisible, setMobileMenuVisible] = useState(false);
   const [username, setUsername] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isNodeAdmin, setIsNodeAdmin] = useState(false);
   // 面板名:先用本地值渲染,后台校验到新名字时(SITE_CONFIG_UPDATED)实时刷新,
   // 免得管理员改了名字、车友那边一直显示旧名
   const [appName, setAppName] = useState(siteConfig.name);
@@ -115,7 +118,8 @@ export default function AdminLayout({
           <path fillRule="evenodd" d="M10 1a1 1 0 011 1v1.323l3.954 1.582 1.599-.8a1 1 0 01.894 1.79l-1.233.616 1.738 5.42a1 1 0 01-.285 1.05A3.989 3.989 0 0115 15a3.989 3.989 0 01-2.667-1.019 1 1 0 01-.285-1.05l1.715-5.349L11 6.477V16h2a1 1 0 110 2H7a1 1 0 110-2h2V6.477L6.237 7.582l1.715 5.349a1 1 0 01-.285 1.05A3.989 3.989 0 015 15a3.989 3.989 0 01-2.667-1.019 1 1 0 01-.285-1.05l1.738-5.42-1.233-.616a1 1 0 01.894-1.79l1.599.8L9 3.323V2a1 1 0 011-1z" clipRule="evenodd" />
         </svg>
       ),
-      adminOnly: true
+      adminOnly: true,
+      nodeAdminAllowed: true
     },
     {
       path: '/relay',
@@ -125,7 +129,8 @@ export default function AdminLayout({
           <path fillRule="evenodd" d="M8 4a1 1 0 00-1 1v1H4a1 1 0 000 2h9.586l-1.293 1.293a1 1 0 101.414 1.414l3-3a1 1 0 000-1.414l-3-3A1 1 0 0013 4.586V5a1 1 0 00-1-1H8zm4 12a1 1 0 001-1v-1h3a1 1 0 100-2H6.414l1.293-1.293a1 1 0 10-1.414-1.414l-3 3a1 1 0 000 1.414l3 3A1 1 0 007 15.414V15a1 1 0 001 1h4z" clipRule="evenodd" />
         </svg>
       ),
-      adminOnly: true
+      adminOnly: true,
+      nodeAdminAllowed: true
     },
     {
       path: '/landing',
@@ -255,6 +260,15 @@ export default function AdminLayout({
     
     setUsername(name);
     setIsAdmin(adminFlag);
+    if (!adminFlag) {
+      getMyPermissions()
+        .then((res) => {
+          if (res.code === 0 && res.data?.isNodeAdmin) {
+            setIsNodeAdmin(true);
+          }
+        })
+        .catch(() => {});
+    }
 
     // 响应式检查
     checkMobile();
@@ -351,9 +365,9 @@ export default function AdminLayout({
     });
   };
 
-  // 过滤菜单项（根据权限）:adminOnly 只给管理员,userOnly 只给车友
+  // 过滤菜单项（根据权限）:adminOnly 只给管理员(带 nodeAdminAllowed 的也对节点管理员开放),userOnly 只给车友
   const filteredMenuItems = menuItems.filter(item =>
-    (!item.adminOnly || isAdmin) && (!item.userOnly || !isAdmin)
+    (!item.adminOnly || isAdmin || (isNodeAdmin && item.nodeAdminAllowed)) && (!item.userOnly || !isAdmin)
   );
 
   return (

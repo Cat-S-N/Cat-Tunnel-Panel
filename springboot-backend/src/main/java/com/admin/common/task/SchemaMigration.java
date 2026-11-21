@@ -59,6 +59,10 @@ public class SchemaMigration implements ApplicationRunner {
                 "ALTER TABLE `node` ADD COLUMN `ipv6_sub` TINYINT NOT NULL DEFAULT 0 COMMENT '订阅出IPv6节点'");
         addColumnIfMissing("node", "ipv6_dual",
                 "ALTER TABLE `node` ADD COLUMN `ipv6_dual` TINYINT NOT NULL DEFAULT 0 COMMENT 'IPv6双栈'");
+
+        // 节点管理员权限：允许非超管用户管理指定的节点（逗号分隔的 node_id 列表）
+        addColumnIfMissing("user", "managed_nodes",
+                "ALTER TABLE `user` ADD COLUMN `managed_nodes` VARCHAR(512) NULL COMMENT '可管理的节点ID列表(逗号分隔)'");
     }
 
     /** 列不存在才执行 ddl;任何异常都吞掉(只记日志),不能因为迁移失败导致面板起不来 */

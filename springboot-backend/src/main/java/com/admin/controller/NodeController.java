@@ -32,11 +32,35 @@ public class NodeController extends BaseController {
     }
 
 
+    @javax.annotation.Resource
+    private com.admin.mapper.UserMapper userMapper;
+
     @LogAnnotation
-    @RequireRole
+    @RequireRole(allowNodeAdmin = true)
     @PostMapping("/list")
     public R list() {
-        return nodeService.getAllNodes();
+        R res = nodeService.getAllNodes();
+        if (res.getCode() != 0 || com.admin.common.utils.NodePermissionHelper.isSuperAdmin()) {
+            return res;
+        }
+        java.util.Set<Long> allowed = com.admin.common.utils.NodePermissionHelper.getCurrentManagedNodeIds(userMapper);
+        if (res.getData() instanceof java.util.List<?>) {
+            java.util.List<Object> filtered = new java.util.ArrayList<>();
+            for (Object item : (java.util.List<?>) res.getData()) {
+                Long nid = null;
+                if (item instanceof com.admin.entity.Node) {
+                    nid = ((com.admin.entity.Node) item).getId();
+                } else if (item instanceof java.util.Map<?, ?>) {
+                    Object idObj = ((java.util.Map<?, ?>) item).get("id");
+                    if (idObj != null) nid = Long.valueOf(String.valueOf(idObj));
+                }
+                if (nid != null && allowed.contains(nid)) {
+                    filtered.add(item);
+                }
+            }
+            return R.ok(filtered);
+        }
+        return res;
     }
 
     @LogAnnotation

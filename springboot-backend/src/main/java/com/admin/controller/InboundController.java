@@ -28,56 +28,118 @@ public class InboundController extends BaseController {
     @Autowired
     private InboundService inboundService;
 
+    @javax.annotation.Resource
+    private com.admin.mapper.UserMapper userMapper;
+
+    @javax.annotation.Resource
+    private com.admin.mapper.InboundUserMapper inboundUserMapper;
+
+    private boolean canManageNode(Long nodeId) {
+        return com.admin.common.utils.NodePermissionHelper.canManageNode(userMapper, nodeId);
+    }
+
+    private Long nodeIdOfInbound(Long inboundId) {
+        if (inboundId == null) return null;
+        com.admin.entity.Inbound in = inboundService.getById(inboundId);
+        return in == null ? null : in.getNodeId();
+    }
+
+    private Long nodeIdOfInboundUser(Long inboundUserId) {
+        if (inboundUserId == null) return null;
+        com.admin.entity.InboundUser iu = inboundUserMapper.selectById(inboundUserId);
+        return iu == null ? null : nodeIdOfInbound(iu.getInboundId());
+    }
+
     @LogAnnotation
-    @RequireRole
+    @RequireRole(allowNodeAdmin = true)
     @PostMapping("/create")
     public R create(@Validated @RequestBody InboundDto dto) {
+        if (!canManageNode(dto.getNodeId())) {
+            return R.err(403, "无权管理该节点");
+        }
         return inboundService.createInbound(dto);
     }
 
     /** 一键添加:在指定节点上把所有支持的协议一键全建出来(像 s-ui 的一键添加) */
     @LogAnnotation
-    @RequireRole
+    @RequireRole(allowNodeAdmin = true)
     @PostMapping("/one-click")
     public R oneClick(@RequestBody Map<String, Object> body) {
+        Long nodeId = asLong(body.get("nodeId"));
+        if (!canManageNode(nodeId)) {
+            return R.err(403, "无权管理该节点");
+        }
         return inboundService.oneClickCreate(
-                Long.valueOf(String.valueOf(body.get("nodeId"))),
+                nodeId,
                 body.get("sni") == null ? null : String.valueOf(body.get("sni")));
     }
 
     /** 一键搭中转:在前置机上建全套协议,流量经内联粘贴的落地出网 */
     @LogAnnotation
-    @RequireRole
+    @RequireRole(allowNodeAdmin = true)
     @PostMapping("/one-click-relay")
     public R oneClickRelay(@RequestBody Map<String, Object> body) {
+        Long nodeId = asLong(body.get("nodeId"));
+        if (!canManageNode(nodeId)) {
+            return R.err(403, "无权管理该节点");
+        }
         return inboundService.oneClickRelay(
-                Long.valueOf(String.valueOf(body.get("nodeId"))),
+                nodeId,
                 String.valueOf(body.get("link")),
                 body.get("name") == null ? null : String.valueOf(body.get("name")),
                 body.get("sni") == null ? null : String.valueOf(body.get("sni")));
     }
 
-    @RequireRole
+    @RequireRole(allowNodeAdmin = true)
     @PostMapping("/list")
     public R list() {
-        return inboundService.getInbounds();
+        R res = inboundService.getInbounds();
+        if (res.getCode() != 0 || com.admin.common.utils.NodePermissionHelper.isSuperAdmin()) {
+            return res;
+        }
+        java.util.Set<Long> allowed = com.admin.common.utils.NodePermissionHelper.getCurrentManagedNodeIds(userMapper);
+        if (res.getData() instanceof java.util.List<?>) {
+            java.util.List<Object> filtered = new java.util.ArrayList<>();
+            for (Object item : (java.util.List<?>) res.getData()) {
+                Long nid = null;
+                if (item instanceof com.admin.entity.Inbound) {
+                    nid = ((com.admin.entity.Inbound) item).getNodeId();
+                } else if (item instanceof Map<?, ?>) {
+                    Object nObj = ((Map<?, ?>) item).get("nodeId");
+                    if (nObj != null) nid = Long.valueOf(String.valueOf(nObj));
+                }
+                if (nid != null && allowed.contains(nid)) {
+                    filtered.add(item);
+                }
+            }
+            return R.ok(filtered);
+        }
+        return res;
     }
 
     @LogAnnotation
-    @RequireRole
+    @RequireRole(allowNodeAdmin = true)
     @PostMapping("/delete")
     public R delete(@RequestBody Map<String, Object> body) {
-        return inboundService.deleteInbound(Long.valueOf(String.valueOf(body.get("id"))));
+        Long id = asLong(body.get("id"));
+        if (!canManageNode(nodeIdOfInbound(id))) {
+            return R.err(403, "无权管理该节点");
+        }
+        return inboundService.deleteInbound(id);
     }
 
     /** 清空某节点上目标组的协议(relay=true 清某落地的中转;否则清直连) */
     @LogAnnotation
-    @RequireRole
+    @RequireRole(allowNodeAdmin = true)
     @PostMapping("/delete-by-node")
     public R deleteByNode(@RequestBody Map<String, Object> body) {
+        Long nodeId = asLong(body.get("nodeId"));
+        if (!canManageNode(nodeId)) {
+            return R.err(403, "无权管理该节点");
+        }
         Boolean relay = body.get("relay") != null && Boolean.parseBoolean(String.valueOf(body.get("relay")));
         Long landingId = body.get("landingId") == null ? null : Long.valueOf(String.valueOf(body.get("landingId")));
-        return inboundService.deleteInboundsByNode(Long.valueOf(String.valueOf(body.get("nodeId"))), relay, landingId);
+        return inboundService.deleteInboundsByNode(nodeId, relay, landingId);
     }
 
     /**
@@ -91,24 +153,34 @@ public class InboundController extends BaseController {
      * 下发的内容就是库里的全量(SetSingboxConfig 整份覆盖),所以重复点没有副作用。
      */
     @LogAnnotation
-    @RequireRole
+    @RequireRole(allowNodeAdmin = true)
     @PostMapping("/push-config")
     public R pushConfig(@RequestBody Map<String, Object> body) {
-        return inboundService.pushNodeConfig(Long.valueOf(String.valueOf(body.get("nodeId"))));
+        Long nodeId = asLong(body.get("nodeId"));
+        if (!canManageNode(nodeId)) {
+            return R.err(403, "无权管理该节点");
+        }
+        return inboundService.pushNodeConfig(nodeId);
     }
 
     @LogAnnotation
-    @RequireRole
+    @RequireRole(allowNodeAdmin = true)
     @PostMapping("/assign")
     public R assign(@Validated @RequestBody InboundUserDto dto) {
+        if (!canManageNode(nodeIdOfInbound(dto.getInboundId()))) {
+            return R.err(403, "无权管理该节点");
+        }
         return inboundService.assignUser(dto);
     }
 
     /** 一键给车友分配全部协议 → 出订阅链接 */
     @LogAnnotation
-    @RequireRole
+    @RequireRole(allowNodeAdmin = true)
     @PostMapping("/assign-all")
     public R assignAll(@RequestBody InboundUserDto dto) {
+        if (!canManageNode(dto.getNodeId())) {
+            return R.err(403, "无权管理该节点");
+        }
         return inboundService.assignAllToUser(dto);
     }
 
@@ -117,9 +189,12 @@ public class InboundController extends BaseController {
      * 自己用不需要限速/限流量/限到期,所以这三项一律不设;省掉"先建车友再分配"的麻烦。
      */
     @LogAnnotation
-    @RequireRole
+    @RequireRole(allowNodeAdmin = true)
     @PostMapping("/assign-self")
     public R assignSelf(@RequestBody InboundUserDto dto) {
+        if (!canManageNode(dto.getNodeId())) {
+            return R.err(403, "无权管理该节点");
+        }
         Integer uid = com.admin.common.utils.JwtUtil.getUserIdFromToken();
         if (uid == null) {
             return R.err("未登录");
@@ -156,10 +231,56 @@ public class InboundController extends BaseController {
     }
 
     @LogAnnotation
-    @RequireRole
+    @RequireRole(allowNodeAdmin = true)
     @PostMapping("/unassign")
     public R unassign(@RequestBody Map<String, Object> body) {
-        return inboundService.unassignUser(Long.valueOf(String.valueOf(body.get("id"))));
+        Long id = asLong(body.get("id"));
+        if (!canManageNode(nodeIdOfInboundUser(id))) {
+            return R.err(403, "无权管理该节点");
+        }
+        return inboundService.unassignUser(id);
+    }
+
+    /** 重置订阅 Token（单条线路或聚合订阅） */
+    @LogAnnotation
+    @RequireRole(allowNodeAdmin = true)
+    @PostMapping("/reset-sub-token")
+    public R resetSubToken(@RequestBody Map<String, Object> body) {
+        boolean resetAll = body.get("resetAll") != null && Boolean.parseBoolean(String.valueOf(body.get("resetAll")));
+        if (resetAll) {
+            if (!com.admin.common.utils.NodePermissionHelper.isSuperAdmin()) {
+                return R.err(403, "仅超级管理员可重置聚合订阅链接");
+            }
+            return inboundService.resetSubToken(asLong(body.get("userId")), null, null, true);
+        }
+        Long nodeId = asLong(body.get("nodeId"));
+        if (!canManageNode(nodeId)) {
+            return R.err(403, "无权管理该节点");
+        }
+        return inboundService.resetSubToken(asLong(body.get("userId")), nodeId, asLong(body.get("landingId")), false);
+    }
+
+    /** 重置指定 SOCKS5 分配记录的账号密码并立即重推节点配置 */
+    @LogAnnotation
+    @RequireRole(allowNodeAdmin = true)
+    @PostMapping("/reset-socks-password")
+    public R resetSocksPassword(@RequestBody Map<String, Object> body) {
+        Long id = asLong(body.get("id"));
+        if (!canManageNode(nodeIdOfInboundUser(id))) {
+            return R.err(403, "无权管理该节点");
+        }
+        return inboundService.resetSocksPassword(id);
+    }
+
+    /** 测试指定 SOCKS5 分配记录的连通性（普通用户可测自己的，管理员可测其有权管理的） */
+    @PostMapping("/test-socks")
+    public R testSocks(@RequestBody Map<String, Object> body) {
+        Integer uid = com.admin.common.utils.JwtUtil.getUserIdFromToken();
+        if (uid == null) {
+            return R.err(401, "未登录");
+        }
+        boolean isAdmin = com.admin.common.utils.NodePermissionHelper.isSuperAdmin();
+        return inboundService.testSocksNode(asLong(body.get("id")), uid.longValue(), isAdmin);
     }
 
     /**

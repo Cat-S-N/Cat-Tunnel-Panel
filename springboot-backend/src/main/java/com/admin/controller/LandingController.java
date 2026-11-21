@@ -40,7 +40,7 @@ public class LandingController extends BaseController {
         return landingService.createLanding(dto);
     }
 
-    @RequireRole
+    @RequireRole(allowNodeAdmin = true)
     @PostMapping("/list")
     public R list() {
         return landingService.getLandings();
@@ -97,12 +97,19 @@ public class LandingController extends BaseController {
         return landingService.deleteLanding(Long.valueOf(String.valueOf(body.get("id"))));
     }
 
+    @javax.annotation.Resource
+    private com.admin.mapper.UserMapper userMapper;
+
     /** 中转:经前置机测一条落地链接能不能通,回显出口 IP */
-    @RequireRole
+    @RequireRole(allowNodeAdmin = true)
     @PostMapping("/test")
     public R test(@RequestBody Map<String, Object> body) {
+        Long nodeId = Long.valueOf(String.valueOf(body.get("nodeId")));
+        if (!com.admin.common.utils.NodePermissionHelper.canManageNode(userMapper, nodeId)) {
+            return R.err(403, "无权管理该节点");
+        }
         return landingService.testLanding(
-                Long.valueOf(String.valueOf(body.get("nodeId"))),
+                nodeId,
                 String.valueOf(body.get("link")));
     }
 }

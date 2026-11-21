@@ -41,6 +41,9 @@ export default function InboundPage() {
   const [nodes, setNodes] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [speedRules, setSpeedRules] = useState<any[]>([]);
+  const [searchKeyword, setSearchKeyword] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [protoFilter, setProtoFilter] = useState<string>("all");
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm, setCreateForm] = useState<any>({ nodeId: null, protocol: "vless", sni: DEFAULT_SNI, dest: "", remark: "" });
@@ -288,11 +291,26 @@ export default function InboundPage() {
   };
 
   // 协议管理只管【直连】协议(landingId 为空);中转的协议在「中转」页管
-  const machineNodes = nodes.filter((n) => inbounds.some((ib) => ib.nodeId === n.id && !ib.landingId));
+  const allMachineNodes = nodes.filter((n) => inbounds.some((ib) => ib.nodeId === n.id && !ib.landingId));
+  const kw = searchKeyword.trim().toLowerCase();
+  const machineNodes = allMachineNodes.filter((n) => {
+    if (statusFilter === "online" && n.status !== 1) return false;
+    if (statusFilter === "offline" && n.status === 1) return false;
+    if (kw) {
+      const nameHit = String(n.name || "").toLowerCase().includes(kw);
+      const ipHit = String(n.ip || n.serverIp || "").toLowerCase().includes(kw);
+      if (!nameHit && !ipHit) return false;
+    }
+    if (protoFilter !== "all") {
+      const hasProto = inbounds.some((ib) => ib.nodeId === n.id && !ib.landingId && ib.protocol === protoFilter);
+      if (!hasProto) return false;
+    }
+    return true;
+  });
 
   return (
     <div className="p-4 space-y-4">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center flex-wrap gap-2">
         <h1 className="text-xl font-bold">协议管理</h1>
         <div className="flex gap-2">
           <Button
@@ -316,6 +334,61 @@ export default function InboundPage() {
           </Button>
         </div>
       </div>
+
+      {allMachineNodes.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            size="sm"
+            className="w-full sm:w-60"
+            placeholder="搜索机器名或 IP..."
+            isClearable
+            value={searchKeyword}
+            onValueChange={setSearchKeyword}
+          />
+          <Select
+            size="sm"
+            aria-label="状态筛选"
+            className="w-28"
+            selectedKeys={[statusFilter]}
+            onSelectionChange={(k) => setStatusFilter(String(Array.from(k)[0] || "all"))}
+          >
+            <SelectItem key="all">全部状态</SelectItem>
+            <SelectItem key="online">在线</SelectItem>
+            <SelectItem key="offline">离线</SelectItem>
+          </Select>
+          <Select
+            size="sm"
+            aria-label="协议筛选"
+            className="w-40"
+            maxListboxHeight={400}
+            selectedKeys={[protoFilter]}
+            onSelectionChange={(k) => setProtoFilter(String(Array.from(k)[0] || "all"))}
+          >
+            <SelectItem key="all">全部协议</SelectItem>
+            <SelectItem key="socks">SOCKS5</SelectItem>
+            <SelectItem key="shadowsocks">Shadowsocks-2022</SelectItem>
+            <SelectItem key="vless">VLESS-Reality</SelectItem>
+            <SelectItem key="trojan">Trojan-Reality</SelectItem>
+            <SelectItem key="vmess">VMess</SelectItem>
+            <SelectItem key="hysteria2">Hysteria2</SelectItem>
+            <SelectItem key="tuic">TUIC</SelectItem>
+            <SelectItem key="anytls">AnyTLS</SelectItem>
+          </Select>
+          {(kw || statusFilter !== "all" || protoFilter !== "all") && (
+            <Button
+              size="sm"
+              variant="light"
+              onPress={() => {
+                setSearchKeyword("");
+                setStatusFilter("all");
+                setProtoFilter("all");
+              }}
+            >
+              重置筛选 ({machineNodes.length}/{allMachineNodes.length})
+            </Button>
+          )}
+        </div>
+      )}
 
       {/* 一机一卡:每台机器的全套协议折叠成一条记录,卡上直接分配用户 */}
       <div className="grid gap-3 md:grid-cols-2">

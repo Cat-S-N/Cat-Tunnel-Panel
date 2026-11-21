@@ -79,4 +79,13 @@ public interface InboundService extends IService<Inbound> {
 
     /** 批量保存车友节点名(name 空 = 清掉) */
     R saveUserNodeNames(Long userId, java.util.List<java.util.Map<String, Object>> items);
+
+    /** 重置订阅 Token（resetAll=true 重置聚合订阅 allSubToken，否则重置指定线路的 subToken） */
+    R resetSubToken(Long userId, Long nodeId, Long landingId, boolean resetAll);
+
+    /** 重置指定 SOCKS5 分配记录的账号和密码，并立即重推节点 sing-box 配置 */
+    R resetSocksPassword(Long inboundUserId);
+
+    /** 探测指定 SOCKS5 分配记录的连通性，返回延迟与出口 IP */
+    R testSocksNode(Long inboundUserId, Long requesterUserId, boolean isAdmin);
 }

@@ -2266,4 +2266,118 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
     private String randomShortId() {
         return UUID.randomUUID().toString().replace("-", "").substring(0, 8);
     }
+
+    @Override
+    public R resetSubToken(Long userId, Long nodeId, Long landingId, boolean resetAll) {
+        if (userId == null) {
+            return R.err("缺少用户ID");
+        }
+        User u = userMapper.selectById(userId);
+        if (u == null) {
+            return R.err("用户不存在");
+        }
+        String newToken = UUID.randomUUID().toString().replace("-", "");
+        if (resetAll) {
+            User update = new User();
+            update.setId(userId);
+            update.setAllSubToken(newToken);
+            update.setUpdatedTime(System.currentTimeMillis());
+            userMapper.updateById(update);
+            JSONObject data = new JSONObject();
+            data.put("allSubToken", newToken);
+            return R.ok(data);
+        }
+        if (nodeId == null) {
+            return R.err("缺少节点ID");
+        }
+        InboundLine line = getLine(userId, nodeId, landingId);
+        if (line != null) {
+            line.setSubToken(newToken);
+            line.setUpdatedTime(System.currentTimeMillis());
+            inboundLineMapper.updateById(line);
+        }
+        QueryWrapper<Inbound> iqw = new QueryWrapper<Inbound>().eq("node_id", nodeId);
+        if (landingId == null) {
+            iqw.isNull("landing_id");
+        } else {
+            iqw.eq("landing_id", landingId);
+        }
+        List<Inbound> inbounds = this.list(iqw);
+        int updated = 0;
+        for (Inbound in : inbounds) {
+            List<InboundUser> ius = inboundUserMapper.selectList(
+                    new QueryWrapper<InboundUser>().eq("inbound_id", in.getId()).eq("user_id", userId));
+            for (InboundUser iu : ius) {
+                iu.setSubToken(newToken);
+                inboundUserMapper.updateById(iu);
+                updated++;
+            }
+        }
+        if (line == null && updated == 0) {
+            return R.err("未找到该线路的订阅记录");
+        }
+        JSONObject data = new JSONObject();
+        data.put("subToken", newToken);
+        return R.ok(data);
+    }
+
+    @Override
+    public R resetSocksPassword(Long inboundUserId) {
+        if (inboundUserId == null) {
+            return R.err("缺少分配记录ID");
+        }
+        InboundUser iu = inboundUserMapper.selectById(inboundUserId);
+        if (iu == null) {
+            return R.err("分配记录不存在");
+        }
+        Inbound in = this.getById(iu.getInboundId());
+        if (in == null || !"socks".equalsIgnoreCase(in.getProtocol())) {
+            return R.err("该记录不是 SOCKS5 协议");
+        }
+        String newUuid = UUID.randomUUID().toString();
+        String newPassword = UUID.randomUUID().toString().replace("-", "");
+        iu.setUuid(newUuid);
+        iu.setPassword(newPassword);
+        inboundUserMapper.updateById(iu);
+        pushNodeSingbox(in.getNodeId());
+        JSONObject data = new JSONObject();
+        data.put("username", SingboxUtil.socksUsername(newUuid));
+        data.put("password", newPassword);
+        return R.ok(data);
+    }
+
+    @Override
+    public R testSocksNode(Long inboundUserId, Long requesterUserId, boolean isAdmin) {
+        if (inboundUserId == null) {
+            return R.err("缺少分配记录ID");
+        }
+        InboundUser iu = inboundUserMapper.selectById(inboundUserId);
+        if (iu == null) {
+            return R.err("分配记录不存在");
+        }
+        Inbound in = this.getById(iu.getInboundId());
+        if (in == null || !"socks".equalsIgnoreCase(in.getProtocol())) {
+            return R.err("该记录不是 SOCKS5 协议");
+        }
+        if (!isAdmin) {
+            boolean own = requesterUserId != null && requesterUserId.equals(iu.getUserId());
+            boolean nodeAdmin = com.admin.common.utils.NodePermissionHelper.canManageNode(userMapper, in.getNodeId());
+            if (!own && !nodeAdmin) {
+                return R.err(403, "无权测试该 SOCKS5 代理");
+            }
+        }
+        Node node = nodeMapper.selectById(in.getNodeId());
+        Forward f = iu.getGostForwardId() == null ? null : forwardMapper.selectById(iu.getGostForwardId());
+        if (node == null || f == null || f.getInPort() == null) {
+            return R.err("未找到节点或端口信息");
+        }
+        String host = linkHost(node);
+        if (host == null || host.isEmpty()) {
+            return R.err("节点缺少可连接地址");
+        }
+        String username = SingboxUtil.socksUsername(iu.getUuid());
+        String password = iu.getPassword();
+        JSONObject probe = com.admin.common.utils.SocksProbeUtil.probe(host, f.getInPort(), username, password);
+        return R.ok(probe);
+    }
 }

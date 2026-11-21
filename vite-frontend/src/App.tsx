@@ -1,24 +1,24 @@
 import { Route, Routes, useNavigate, Navigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 
 import IndexPage from "@/pages/index";
-import ChangePasswordPage from "@/pages/change-password";
-import DashboardPage from "@/pages/dashboard";
-import ForwardPage from "@/pages/forward";
-import TunnelPage from "@/pages/tunnel";
-import NodePage from "@/pages/node";
-import UserPage from "@/pages/user";
-import ProfilePage from "@/pages/profile";
-import LimitPage from "@/pages/limit";
-import InboundPage from "@/pages/inbound";
-import RelayPage from "@/pages/relay";
-import LandingPage from "@/pages/landing";
-import GuidePage from "@/pages/guide";
-import MySubPage from "@/pages/my-sub";
-import ConfigPage from "@/pages/config";
-import MonitorPage from "@/pages/monitor";
-import StatusPage from "@/pages/status";
-import { SettingsPage } from "@/pages/settings";
+const ChangePasswordPage = lazy(() => import("@/pages/change-password"));
+const DashboardPage = lazy(() => import("@/pages/dashboard"));
+const ForwardPage = lazy(() => import("@/pages/forward"));
+const TunnelPage = lazy(() => import("@/pages/tunnel"));
+const NodePage = lazy(() => import("@/pages/node"));
+const UserPage = lazy(() => import("@/pages/user"));
+const ProfilePage = lazy(() => import("@/pages/profile"));
+const LimitPage = lazy(() => import("@/pages/limit"));
+const InboundPage = lazy(() => import("@/pages/inbound"));
+const RelayPage = lazy(() => import("@/pages/relay"));
+const LandingPage = lazy(() => import("@/pages/landing"));
+const GuidePage = lazy(() => import("@/pages/guide"));
+const MySubPage = lazy(() => import("@/pages/my-sub"));
+const ConfigPage = lazy(() => import("@/pages/config"));
+const MonitorPage = lazy(() => import("@/pages/monitor"));
+const StatusPage = lazy(() => import("@/pages/status"));
+const SettingsPage = lazy(() => import("@/pages/settings").then((m) => ({ default: m.SettingsPage })));
 
 import AdminLayout from "@/layouts/admin";
 import H5Layout from "@/layouts/h5";
@@ -155,6 +155,7 @@ function App() {
   }, []);
 
   return (
+    <Suspense fallback={<div className="flex items-center justify-center min-h-[60vh] text-sm text-default-400">加载中...</div>}>
     <Routes>
       <Route path="/" element={<LoginRoute />} />
       <Route 
@@ -285,6 +286,7 @@ function App() {
       {/* 公开状态页:不登录也能看,面板里没打开时只显示「未开启」 */}
       <Route path="/status" element={<StatusPage />} />
     </Routes>
+    </Suspense>
   );
 }
 

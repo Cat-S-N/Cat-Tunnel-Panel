@@ -69,5 +69,8 @@ public class User extends BaseEntity {
      */
     private String allSubToken;
 
+    /** 可管理的节点ID列表（逗号分隔，空=无节点管理权限；超级管理员无需此字段） */
+    private String managedNodes;
+
 
 }

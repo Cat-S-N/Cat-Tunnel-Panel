@@ -22,6 +22,8 @@ export const getAllUsers = (pageData: any = {}) => Network.post("/user/list", pa
 export const updateUser = (data: any) => Network.post("/user/update", data);
 export const deleteUser = (id: number) => Network.post("/user/delete", { id });
 export const setQuantumultXPermission = (id: number, enabled: boolean) => Network.post("/user/quantumult-x", { id, enabled });
+export const getMyPermissions = () => Network.post("/user/my-permissions");
+export const setUserManagedNodes = (userId: number, nodeIds: number[]) => Network.post("/user/managed-nodes", { userId, nodeIds });
 export const getUserPackageInfo = () => Network.post("/user/package");
 
 // 转发机CRUD操作 - 全部使用POST请求
@@ -97,6 +99,10 @@ export const assignAllToUser = (data: any) => Network.post("/inbound/assign-all"
 // 「我自己用」:把这台机器/这条中转的协议开给当前登录的管理员自己(不限速/不限量/不到期)
 export const assignSelf = (data: any) => Network.post("/inbound/assign-self", data);
 export const unassignInboundUser = (id: number) => Network.post("/inbound/unassign", { id });
+export const resetSubToken = (data: { userId: number; nodeId?: number; landingId?: number | null; resetAll?: boolean }) =>
+  Network.post("/inbound/reset-sub-token", data);
+export const resetSocksPassword = (id: number) => Network.post("/inbound/reset-socks-password", { id });
+export const testSocksNode = (id: number) => Network.post("/inbound/test-socks", { id });
 // 按【线路】操作(线路 = 车友 × 机器 × 落地;landingId 传 null 表示这台机器的直连)。
 // unassignInboundUser 取消的是单个协议,一条线路有六个,挨个点太蠢。
 export const setLineStatus = (userId: number, nodeId: number, landingId: number | null, status: number) =>

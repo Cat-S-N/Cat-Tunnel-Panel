@@ -3,6 +3,8 @@ package com.admin.common.aop;
 import com.admin.common.annotation.RequireRole;
 import com.admin.common.lang.R;
 import com.admin.common.utils.JwtUtil;
+import com.admin.common.utils.NodePermissionHelper;
+import com.admin.mapper.UserMapper;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -10,16 +12,20 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
+import javax.annotation.Resource;
 import javax.servlet.http.HttpServletRequest;
 
 /**
  * 权限控制切面
- * 处理 @RequireRole 注解，检查管理员权限（role_id = 0）
+ * 处理 @RequireRole 注解，检查管理员权限（role_id = 0）或节点管理员权限
  * 注意：JWT拦截器已经验证了token的有效性，这里只需要检查权限
  */
 @Aspect
 @Component
 public class RoleAspect {
+
+    @Resource
+    private UserMapper userMapper;
 
     @Around("@annotation(requireRole)")
     public Object checkRole(ProceedingJoinPoint joinPoint, RequireRole requireRole) throws Throwable {
@@ -38,8 +44,14 @@ public class RoleAspect {
             return R.err(401, "无法获取用户权限信息");
         }
         
-        // 检查是否为管理员（role_id = 0）
+        // 检查是否为超级管理员（role_id = 0）
         if (roleId != 0) {
+            if (requireRole.allowNodeAdmin()) {
+                Long uid = JwtUtil.getUserIdFromToken(token);
+                if (uid != null && !NodePermissionHelper.getManagedNodeIds(userMapper, uid).isEmpty()) {
+                    return joinPoint.proceed();
+                }
+            }
             return R.err(403, "权限不足，仅管理员可操作");
         }
         

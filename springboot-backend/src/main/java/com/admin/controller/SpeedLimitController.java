@@ -40,7 +40,7 @@ public class SpeedLimitController extends BaseController {
     }
 
     @LogAnnotation
-    @RequireRole
+    @RequireRole(allowNodeAdmin = true)
     @PostMapping("/list")
     public R list() {
         return speedLimitService.getAllSpeedLimits();

@@ -53,7 +53,11 @@ import {
   setLineStatus,
   deleteLine,
   updateLine,
-  unassignInboundUser
+  unassignInboundUser,
+  resetSubToken,
+  resetSocksPassword,
+  getNodeList,
+  setUserManagedNodes
 } from '@/api';
 import { copyTextToClipboard } from '@/utils/clipboard';
 import { SubQrToggle } from '@/components/sub-qr';
@@ -188,6 +192,56 @@ export default function UserPage() {
   const [subUserName, setSubUserName] = useState<string>('');
   // 订阅链接开头:设了「订阅地址(给车友的)」就用它,没设 = 网页地址(和以前一样)。打开弹窗前先取好
   const [subBase, setSubBase] = useState<string>(window.location.origin);
+
+  // 节点管理权限分配模态框（让指定用户管理特定节点）
+  const { isOpen: isNodePermOpen, onOpen: onNodePermOpen, onClose: onNodePermClose } = useDisclosure();
+  const [nodePermUser, setNodePermUser] = useState<any>(null);
+  const [allNodes, setAllNodes] = useState<any[]>([]);
+  const [selectedManagedNodeIds, setSelectedManagedNodeIds] = useState<number[]>([]);
+  const [nodePermSaving, setNodePermSaving] = useState(false);
+
+  const parseManagedIds = (raw?: string | null): number[] => {
+    if (!raw) return [];
+    return raw
+      .split(',')
+      .map((s) => Number(s.trim()))
+      .filter((n) => Number.isFinite(n) && n > 0);
+  };
+
+  const handleOpenNodePerm = async (user: any) => {
+    setNodePermUser(user);
+    setSelectedManagedNodeIds(parseManagedIds(user.managedNodes));
+    onNodePermOpen();
+    try {
+      const res = await getNodeList();
+      if (res.code === 0) setAllNodes(res.data || []);
+    } catch {
+      toast.error('加载节点列表失败');
+    }
+  };
+
+  const handleSaveNodePerm = async () => {
+    if (!nodePermUser) return;
+    setNodePermSaving(true);
+    try {
+      const res = await setUserManagedNodes(nodePermUser.id, selectedManagedNodeIds);
+      if (res.code === 0) {
+        toast.success(
+          selectedManagedNodeIds.length > 0
+            ? `已授权「${nodePermUser.user}」管理 ${selectedManagedNodeIds.length} 个节点`
+            : `已清空「${nodePermUser.user}」的节点管理权限`
+        );
+        onNodePermClose();
+        loadUsers();
+      } else {
+        toast.error(res.msg || '保存失败');
+      }
+    } catch {
+      toast.error('保存失败');
+    } finally {
+      setNodePermSaving(false);
+    }
+  };
   const subUrl = (token: string) => `${subBase}/api/v1/open_api/sub?token=${token}`;
   // Clash / Mihomo 走独立路径:那边吃 YAML,和上面这条 base64 链接列表不通用,
   // 贴错了客户端里是空的。
@@ -798,7 +852,7 @@ export default function UserPage() {
                       </Button>
                     </div>
 
-                    {/* 第三行:订阅链接(合体面板:该车友所有协议的订阅) */}
+                    {/* 第三行:订阅链接 & 节点管理权限 */}
                     <div className="flex gap-1.5">
                       <Button
                         size="sm"
@@ -808,6 +862,15 @@ export default function UserPage() {
                         className="flex-1 min-h-8"
                       >
                         🔗 订阅链接
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="flat"
+                        color={parseManagedIds((user as any).managedNodes).length > 0 ? "warning" : "default"}
+                        onPress={() => handleOpenNodePerm(user)}
+                        className="min-h-8"
+                      >
+                        🛡️ 节点权限{parseManagedIds((user as any).managedNodes).length > 0 ? ` (${parseManagedIds((user as any).managedNodes).length})` : ''}
                       </Button>
                     </div>
                   </div>
@@ -1595,6 +1658,25 @@ export default function UserPage() {
                   >
                     复制 Clash 版
                   </Button>
+                  <Button
+                    size="sm"
+                    color="warning"
+                    variant="flat"
+                    className="ml-auto"
+                    onPress={async () => {
+                      if (subUserId == null) return;
+                      if (!confirm('确定重置该用户的「全部线路」聚合订阅链接？\n旧链接将立刻失效，需把新链接发给用户重新导入。')) return;
+                      const res = await resetSubToken({ userId: subUserId, resetAll: true });
+                      if (res.code === 0) {
+                        toast.success('已重置聚合订阅链接');
+                        await reloadSubLines(subUserId);
+                      } else {
+                        toast.error(res.msg || '重置失败');
+                      }
+                    }}
+                  >
+                    重置链接
+                  </Button>
                 </div>
                 {subQuantumultXEnabled && <QuanxSubscription base={subBase} token={subAllToken} />}
                 <div className="text-tiny text-default-400">
@@ -1647,6 +1729,24 @@ export default function UserPage() {
                       }}
                     >
                       Clash 版
+                    </Button>
+                    <Button
+                      size="sm"
+                      color="warning"
+                      variant="light"
+                      onPress={async () => {
+                        if (subUserId == null) return;
+                        if (!confirm(`确定重置「${ln.nodeName}」的订阅链接？\n旧链接将立刻失效（端口与流量不受影响）。`)) return;
+                        const res = await resetSubToken({ userId: subUserId, nodeId: ln.nodeId, landingId: ln.landingId ?? null });
+                        if (res.code === 0) {
+                          toast.success('已重置该线路订阅链接');
+                          await reloadSubLines(subUserId);
+                        } else {
+                          toast.error(res.msg || '重置失败');
+                        }
+                      }}
+                    >
+                      重置链接
                     </Button>
                     <div className="flex-1" />
                     {/* 收回这条线路的入口。停用是可逆的:UUID 和端口都留着,
@@ -1762,6 +1862,17 @@ export default function UserPage() {
             })}
             <SocksNodesSection
               nodes={subSocksNodes}
+              onResetPassword={async (item) => {
+                if (subUserId == null || item.inboundUserId == null) return;
+                if (!confirm(`确定重置该用户的 SOCKS5 账号密码（${item.nodeName} ${item.host}:${item.port}）？\n旧账号密码将立刻失效并自动重推节点配置。`)) return;
+                const res = await resetSocksPassword(item.inboundUserId);
+                if (res.code === 0) {
+                  toast.success('已重置 SOCKS5 账号密码');
+                  await reloadSubLines(subUserId);
+                } else {
+                  toast.error(res.msg || '重置失败');
+                }
+              }}
               onRemove={async (item) => {
                 if (subUserId == null || item.inboundUserId == null) return;
                 if (!confirm(`确定单独收回该用户的 SOCKS5 代理（${item.nodeName} ${item.host}:${item.port}）？`)) return;
@@ -1777,6 +1888,72 @@ export default function UserPage() {
           </ModalBody>
           <ModalFooter>
             <Button variant="light" onPress={onSubModalClose}>关闭</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      {/* 节点管理权限分配模态框 */}
+      <Modal isOpen={isNodePermOpen} onClose={onNodePermClose} size="lg" backdrop="blur" placement="center">
+        <ModalContent>
+          <ModalHeader>🛡️ 分配节点管理权限 — {nodePermUser?.user}</ModalHeader>
+          <ModalBody className="space-y-3">
+            <div className="text-sm text-default-500">
+              勾选允许该用户管理的节点。被授权后，对方登录面板会看到「协议管理」和「中转」菜单，但<b>只能查看和操作这里勾选的节点</b>，无法访问其它节点或系统设置。清空则收回全部管理权限。
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs text-default-500">
+                已选 {selectedManagedNodeIds.length} / {allNodes.length} 个节点
+              </span>
+              <div className="flex gap-1.5">
+                <Button
+                  size="sm"
+                  variant="flat"
+                  className="h-7 min-w-0 px-2 text-xs"
+                  onPress={() => setSelectedManagedNodeIds(allNodes.map((n) => n.id))}
+                >
+                  全选
+                </Button>
+                <Button
+                  size="sm"
+                  variant="light"
+                  className="h-7 min-w-0 px-2 text-xs"
+                  onPress={() => setSelectedManagedNodeIds([])}
+                >
+                  清空
+                </Button>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 rounded-lg border border-default-200 p-3 max-h-64 overflow-y-auto">
+              {allNodes.length === 0 ? (
+                <div className="text-xs text-default-400">暂无节点</div>
+              ) : (
+                allNodes.map((n) => {
+                  const checked = selectedManagedNodeIds.includes(n.id);
+                  return (
+                    <Chip
+                      key={n.id}
+                      size="sm"
+                      color={checked ? 'primary' : 'default'}
+                      variant={checked ? 'solid' : 'bordered'}
+                      className="cursor-pointer select-none"
+                      onClick={() =>
+                        setSelectedManagedNodeIds((prev) =>
+                          prev.includes(n.id) ? prev.filter((id) => id !== n.id) : [...prev, n.id]
+                        )
+                      }
+                    >
+                      {checked ? '✓ ' : ''}🖥️ {n.name}
+                    </Chip>
+                  );
+                })
+              )}
+            </div>
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="light" onPress={onNodePermClose}>取消</Button>
+            <Button color="primary" isLoading={nodePermSaving} onPress={handleSaveNodePerm}>
+              保存权限
+            </Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

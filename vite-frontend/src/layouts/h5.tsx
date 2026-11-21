@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 
 import { Logo } from '@/components/icons';
 import { siteConfig } from '@/config/site';
+import { getMyPermissions } from '@/api';
 import ClientRecommendBanner from '@/components/client-recommend-banner';
 
 interface TabItem {
@@ -10,6 +11,7 @@ interface TabItem {
   label: string;
   icon: React.ReactNode;
   adminOnly?: boolean;
+  nodeAdminAllowed?: boolean;
   /** 只给非管理员看。车友的底栏本来只剩三项,而「我的订阅」正是他唯一真正要用的页面 */
   userOnly?: boolean;
 }
@@ -24,6 +26,7 @@ export default function H5Layout({
   const navigate = useNavigate();
   const location = useLocation();
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isNodeAdmin, setIsNodeAdmin] = useState(false);
 
   // Tabbar配置
   const tabItems: TabItem[] = [
@@ -53,7 +56,8 @@ export default function H5Layout({
           <path fillRule="evenodd" d="M12.586 4.586a2 2 0 112.828 2.828l-3 3a2 2 0 01-2.828 0 1 1 0 00-1.414 1.414 4 4 0 005.656 0l3-3a4 4 0 00-5.656-5.656l-1.5 1.5a1 1 0 101.414 1.414l1.5-1.5zm-5 5a2 2 0 012.828 0 1 1 0 101.414-1.414 4 4 0 00-5.656 0l-3 3a4 4 0 105.656 5.656l1.5-1.5a1 1 0 10-1.414-1.414l-1.5 1.5a2 2 0 11-2.828-2.828l3-3z" clipRule="evenodd" />
         </svg>
       ),
-      adminOnly: true
+      adminOnly: true,
+      nodeAdminAllowed: true
     },
     {
       // 车友看不到上面那些管理项,底栏会空到只剩三个;而「我的订阅」是他登录进来
@@ -75,7 +79,8 @@ export default function H5Layout({
           <path fillRule="evenodd" d="M3 3a1 1 0 000 2v8a2 2 0 002 2h2.586l-1.293 1.293a1 1 0 101.414 1.414L10 15.414l2.293 2.293a1 1 0 001.414-1.414L12.414 15H15a2 2 0 002-2V5a1 1 0 100-2H3zm11.707 4.707a1 1 0 00-1.414-1.414L10 9.586 8.707 8.293a1 1 0 00-1.414 0l-2 2a1 1 0 101.414 1.414L8 10.414l1.293 1.293a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
         </svg>
       ),
-      adminOnly: true
+      adminOnly: true,
+      nodeAdminAllowed: true
     },
     {
       path: '/profile',
@@ -101,6 +106,15 @@ export default function H5Layout({
     
 
     setIsAdmin(adminFlag);
+    if (!adminFlag) {
+      getMyPermissions()
+        .then((res) => {
+          if (res.code === 0 && res.data?.isNodeAdmin) {
+            setIsNodeAdmin(true);
+          }
+        })
+        .catch(() => {});
+    }
   }, []);
 
   // Tab点击处理
@@ -110,7 +124,7 @@ export default function H5Layout({
 
   // 过滤tab项（根据权限）
   const filteredTabItems = tabItems.filter(item =>
-    (!item.adminOnly || isAdmin) && (!item.userOnly || !isAdmin)
+    (!item.adminOnly || isAdmin || (isNodeAdmin && item.nodeAdminAllowed)) && (!item.userOnly || !isAdmin)
   );
 
   // 路由切换时回到页面顶部，避免上一页的滚动位置遗留
