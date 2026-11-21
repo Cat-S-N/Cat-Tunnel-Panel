@@ -14,6 +14,7 @@ import {
   getInboundList,
   oneClickRelay,
   testLanding,
+  deleteInbound,
   deleteInboundsByNode,
   assignAllToUser,
   assignSelf,
@@ -215,6 +216,18 @@ export default function RelayPage() {
     setAssignLoading(false);
   };
 
+  const handleDeleteInbound = async (ib: any, labelPrefix: string) => {
+    const label = `${protoLabel(ib.protocol)}${ib.remark ? ` (${ib.remark})` : ""}`;
+    if (!window.confirm(`确定删除「${labelPrefix}」上的单个协议【${label}】？\n（该协议已分配的用户转发会一并清理，其它协议不受影响）`)) return;
+    const res = await deleteInbound(ib.id);
+    if (res.code === 0) {
+      toast.success(`已删除协议 ${label}`);
+      loadAll();
+    } else {
+      toast.error(res.msg || "删除失败");
+    }
+  };
+
   const handleClearNode = async (nodeId: number, nodeName: string, landingId: any, landingName: string) => {
     if (!window.confirm(`确定清空「${nodeName} → ${landingName}」这条中转?(连带其转发/用户;直连和其它落地不受影响)`)) return;
     const res = await deleteInboundsByNode(nodeId, true, landingId);
@@ -279,7 +292,15 @@ export default function RelayPage() {
                 </div>
                 <div className="flex flex-wrap gap-1">
                   {ln.inbounds.map((ib: any) => (
-                    <Chip key={ib.id} size="sm" variant="flat" color="secondary">{protoLabel(ib.protocol)}</Chip>
+                    <Chip
+                      key={ib.id}
+                      size="sm"
+                      variant="flat"
+                      color={ib.protocol === "socks" ? "warning" : "secondary"}
+                      onClose={() => handleDeleteInbound(ib, `${n.name} → ${landingName}`)}
+                    >
+                      {protoLabel(ib.protocol)}{ib.remark ? ` (${ib.remark})` : ""}
+                    </Chip>
                   ))}
                 </div>
                 <div className="flex gap-2">

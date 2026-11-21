@@ -14,6 +14,7 @@ import {
   getInboundList,
   createInbound,
   oneClickInbound,
+  deleteInbound,
   deleteInboundsByNode,
   assignAllToUser,
   assignSelf,
@@ -245,6 +246,18 @@ export default function InboundPage() {
     }
   };
 
+  const handleDeleteInbound = async (ib: any, nodeName: string) => {
+    const label = `${protoLabel(ib.protocol)}${ib.remark ? ` (${ib.remark})` : ""}`;
+    if (!window.confirm(`确定删除「${nodeName}」上的单个协议【${label}】？\n（该协议已分配的用户转发会一并清理，其它协议不受影响）`)) return;
+    const res = await deleteInbound(ib.id);
+    if (res.code === 0) {
+      toast.success(`已删除协议 ${label}`);
+      loadAll();
+    } else {
+      toast.error(res.msg || "删除失败");
+    }
+  };
+
   const handleClearNode = async (nodeId: number, nodeName: string) => {
     if (!window.confirm(`确定清空「${nodeName}」上的直连协议?(连带其转发/用户;中转协议不受影响)`)) return;
     const res = await deleteInboundsByNode(nodeId, false);
@@ -347,7 +360,15 @@ export default function InboundPage() {
                 )}
                 <div className="flex flex-wrap gap-1">
                   {nodeInbounds.map((ib) => (
-                    <Chip key={ib.id} size="sm" variant="flat" color="secondary">{protoLabel(ib.protocol)}</Chip>
+                    <Chip
+                      key={ib.id}
+                      size="sm"
+                      variant="flat"
+                      color={ib.protocol === "socks" ? "warning" : "secondary"}
+                      onClose={() => handleDeleteInbound(ib, n.name)}
+                    >
+                      {protoLabel(ib.protocol)}{ib.remark ? ` (${ib.remark})` : ""}
+                    </Chip>
                   ))}
                 </div>
                 <div className="text-xs text-default-400">
