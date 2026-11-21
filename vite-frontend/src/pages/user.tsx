@@ -27,6 +27,7 @@ import { Progress } from "@heroui/progress";
 
 import toast from 'react-hot-toast';
 import { QuanxPermission, QuanxSubscription } from '@/components/quanx-subscription';
+import { SocksNodesSection, SocksNodeItem } from '@/components/socks-nodes-card';
 import { 
   User, 
   UserForm, 
@@ -180,6 +181,7 @@ export default function UserPage() {
   // 订阅线路模态框(合体面板:车友的每台机器一条订阅,直连/中转各一条)
   const { isOpen: isSubModalOpen, onOpen: onSubModalOpen, onClose: onSubModalClose } = useDisclosure();
   const [subLines, setSubLines] = useState<any[]>([]);
+  const [subSocksNodes, setSubSocksNodes] = useState<SocksNodeItem[]>([]);
   const [subAllToken, setSubAllToken] = useState<string>('');
   const [subQuantumultXEnabled, setSubQuantumultXEnabled] = useState<boolean>(false);
   const [subUserName, setSubUserName] = useState<string>('');
@@ -197,15 +199,17 @@ export default function UserPage() {
       // 后端返回结构从数组改成了 {lines, allSubToken},两种都认(版本不同步也不炸)
       const d: any = res.code === 0 ? res.data : null;
       const lines = Array.isArray(d) ? d : (d?.lines || []);
+      const socksNodes: SocksNodeItem[] = !Array.isArray(d) && Array.isArray(d?.socksNodes) ? d.socksNodes : [];
       setSubAllToken(!Array.isArray(d) && d?.allSubToken ? d.allSubToken : '');
       setSubQuantumultXEnabled(!Array.isArray(d) && d?.quantumultXEnabled === true);
-      if (!lines.length) {
+      if (!lines.length && !socksNodes.length) {
         toast.error('该车友还没分配任何线路,先去「协议管理」或「中转」分配');
         return;
       }
       setSubUserName(user.user);
       setSubUserId(user.id);
       setSubLines(lines);
+      setSubSocksNodes(socksNodes);
       onSubModalOpen();
     } catch (e) {
       toast.error('获取订阅失败');
@@ -216,6 +220,7 @@ export default function UserPage() {
     const res = await getUserLines(userId);
     const d: any = res.code === 0 ? res.data : null;
     setSubLines(Array.isArray(d) ? d : (d?.lines || []));
+    setSubSocksNodes(!Array.isArray(d) && Array.isArray(d?.socksNodes) ? d.socksNodes : []);
   };
   const [subUserId, setSubUserId] = useState<number | null>(null);
 
@@ -1726,6 +1731,7 @@ export default function UserPage() {
                 </div>
               );
             })}
+            <SocksNodesSection nodes={subSocksNodes} />
           </ModalBody>
           <ModalFooter>
             <Button variant="light" onPress={onSubModalClose}>关闭</Button>

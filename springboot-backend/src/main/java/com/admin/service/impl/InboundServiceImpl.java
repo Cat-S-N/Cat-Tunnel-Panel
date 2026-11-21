@@ -942,6 +942,10 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
     static void addClashProxies(List<java.util.Map<String, Object>> proxies, java.util.Set<String> usedNames,
                                 Inbound in, InboundUser iu, Node node, Forward forward, String remark,
                                 Tunnel tunnel, List<Runnable> pendingV6) {
+        if (in != null && "socks".equalsIgnoreCase(in.getProtocol())) {
+            // SOCKS5 不加入订阅链接，改由前端单独展示
+            return;
+        }
         String v6Only = listensV6(in, tunnel) && v6OnlySub(node) ? dualV6Host(node) : null;
         if (v6Only != null) {
             // 「只出 v6」:这里先占位(不占任何名字),等整份订阅的 v4 名字全部占好以后,
@@ -1088,6 +1092,10 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
      */
     static void addSubLinks(List<String> links, Inbound in, InboundUser iu, Node node, Forward forward, SubNames.Name nm,
                             Tunnel tunnel) {
+        if (in != null && "socks".equalsIgnoreCase(in.getProtocol())) {
+            // SOCKS5 不加入订阅链接，改由前端单独展示
+            return;
+        }
         String v6 = listensV6(in, tunnel) ? dualV6Host(node) : null;
         if (v6 != null && v6OnlySub(node)) {
             String l6 = clientLink(in, iu, v6, forward, nm.text + " v6", nm.userSet);
@@ -1314,20 +1322,23 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
     @Override
     public R getUserLines(Long userId, boolean self) {
         com.alibaba.fastjson.JSONArray lines = new com.alibaba.fastjson.JSONArray();
+        com.alibaba.fastjson.JSONArray socksNodes = new com.alibaba.fastjson.JSONArray();
         if (userId == null) {
             JSONObject empty = new JSONObject();
             empty.put("lines", lines);
+            empty.put("socksNodes", socksNodes);
             return R.ok(empty);
         }
         List<InboundUser> ius = inboundUserMapper.selectList(new QueryWrapper<InboundUser>().eq("user_id", userId));
         // 按【线路】= 机器 × 落地组 分组:同一台机器的直连、每个落地各算一条订阅
         java.util.Map<String, java.util.List<InboundUser>> byLine = new java.util.LinkedHashMap<>();
+        java.util.Map<Long, Inbound> inboundCache = new java.util.HashMap<>();
         java.util.Map<String, long[]> lineKey = new java.util.HashMap<>(); // key -> [nodeId, landingId(0=直连)]
         for (InboundUser iu : ius) {
             if (iu.getStatus() != null && iu.getStatus() == 0) {
                 continue;
             }
-            Inbound in = this.getById(iu.getInboundId());
+            Inbound in = inboundCache.computeIfAbsent(iu.getInboundId(), this::getById);
             if (in == null) {
                 continue;
             }
@@ -1345,28 +1356,63 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
             String token = null;
             int count = 0;
             long lineFlow = 0L; // 这条线路已用流量 = 该线路各协议对应转发的上下行之和
-            for (InboundUser iu : e.getValue()) {
-                count++;
-                if (token == null && iu.getSubToken() != null && !iu.getSubToken().isEmpty()) {
-                    token = iu.getSubToken();
-                }
-                if (iu.getGostForwardId() != null) {
-                    Forward f = forwardMapper.selectById(iu.getGostForwardId());
-                    if (f != null) {
-                        lineFlow += (f.getInFlow() == null ? 0L : f.getInFlow())
-                                + (f.getOutFlow() == null ? 0L : f.getOutFlow());
-                    }
-                }
-            }
-            if (count == 0) {
-                continue;
-            }
             String landingName = null;
             if (landingId != null) {
                 com.admin.entity.Landing l = landingMapper.selectById(landingId);
                 if (l != null) {
                     landingName = l.getName();
                 }
+            }
+            String alias = names.line(nodeId, landingId);
+            InboundLine lineRec = getLine(userId, nodeId, landingId);
+            Integer lineStatus = lineRec != null ? lineRec.getStatus() : 1;
+            for (InboundUser iu : e.getValue()) {
+                count++;
+                if (token == null && iu.getSubToken() != null && !iu.getSubToken().isEmpty()) {
+                    token = iu.getSubToken();
+                }
+                Forward f = null;
+                if (iu.getGostForwardId() != null) {
+                    f = forwardMapper.selectById(iu.getGostForwardId());
+                    if (f != null) {
+                        lineFlow += (f.getInFlow() == null ? 0L : f.getInFlow())
+                                + (f.getOutFlow() == null ? 0L : f.getOutFlow());
+                    }
+                }
+                Inbound in = inboundCache.get(iu.getInboundId());
+                if (in != null && "socks".equalsIgnoreCase(in.getProtocol()) && node != null && f != null) {
+                    String host = linkHost(node);
+                    Integer port = f.getInPort();
+                    String username = SingboxUtil.socksUsername(iu.getUuid());
+                    String password = iu.getPassword();
+                    if (host != null && !host.isEmpty() && port != null && !username.isEmpty()
+                            && password != null && !password.isEmpty()) {
+                        String displayNodeName = (self && alias != null)
+                                ? alias : (node.getName() != null ? node.getName() : ("机器#" + nodeId));
+                        String displayLanding = (self && alias != null) ? null : landingName;
+                        String remark = SubNames.resolve(in.getProtocol(), in.getRemark(), displayNodeName,
+                                displayLanding, landingId != null, true, alias, names.inbound(in.getId())).text;
+                        JSONObject sn = new JSONObject();
+                        sn.put("inboundId", in.getId());
+                        sn.put("nodeId", nodeId);
+                        sn.put("nodeName", displayNodeName);
+                        sn.put("landingId", landingId);
+                        sn.put("type", landingId != null ? "relay" : "direct");
+                        sn.put("landingName", displayLanding);
+                        sn.put("remark", in.getRemark());
+                        sn.put("host", host);
+                        sn.put("port", port);
+                        sn.put("username", username);
+                        sn.put("password", password);
+                        sn.put("colonFormat", SingboxUtil.uriHost(host) + ":" + port + ":" + username + ":" + password);
+                        sn.put("link", SingboxUtil.buildSocksLink(iu.getUuid(), password, host, port, remark));
+                        sn.put("lineStatus", lineStatus);
+                        socksNodes.add(sn);
+                    }
+                }
+            }
+            if (count == 0) {
+                continue;
             }
             JSONObject line = new JSONObject();
             line.put("nodeId", nodeId);
@@ -1376,7 +1422,6 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
             line.put("landingId", landingId);
             line.put("type", landingId != null ? "relay" : "direct");
             line.put("landingName", landingName);
-            String alias = names.line(nodeId, landingId);
             if (alias != null) {
                 if (self) {
                     line.put("nodeName", alias);
@@ -1387,10 +1432,9 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
             }
             line.put("flow", lineFlow); // 该线路已用流量(字节)
             // 该线路自己的配额/到期(线路表);quotaGb=0/null 表示不单独限,只受账号总量约束
-            InboundLine lineRec = getLine(userId, nodeId, landingId);
             line.put("quotaGb", lineRec != null ? lineRec.getFlow() : null);
             line.put("lineExpTime", lineRec != null ? lineRec.getExpTime() : null);
-            line.put("lineStatus", lineRec != null ? lineRec.getStatus() : 1);
+            line.put("lineStatus", lineStatus);
             line.put("protocolCount", count);
             line.put("subToken", token);
             lines.add(line);
@@ -1399,6 +1443,7 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
         // 前端做了两种格式的兼容,老前端配新后端也不会白屏。
         JSONObject result = new JSONObject();
         result.put("lines", lines);
+        result.put("socksNodes", socksNodes);
         // 【为什么不再要求 lines 非空】原来只有存在协议线路时才发聚合 token。
         // 现在转发也进聚合订阅了 —— 一个只分到转发、没分协议的车友照样需要这条 URL,
         // 拿不到就只能一条条发链接,等于白做。

@@ -10,6 +10,7 @@ import { JwtUtil } from "@/utils/jwt";
 import { copyTextToClipboard } from "@/utils/clipboard";
 import { SubQrToggle } from "@/components/sub-qr";
 import { QuanxPermission, QuanxSubscription } from "@/components/quanx-subscription";
+import { SocksNodesSection, SocksNodeItem } from "@/components/socks-nodes-card";
 import { getSubBase } from "@/utils/sub-base";
 
 /**
@@ -20,6 +21,7 @@ import { getSubBase } from "@/utils/sub-base";
  */
 export default function MySubPage() {
   const [lines, setLines] = useState<any[]>([]);
+  const [socksNodes, setSocksNodes] = useState<SocksNodeItem[]>([]);
   // 「全部线路」聚合订阅:一条链接包含他所有线路,以后新开线路也不用重发
   const [allSubToken, setAllSubToken] = useState<string>("");
   const [quantumultXEnabled, setQuantumultXEnabled] = useState<boolean>(false);
@@ -43,6 +45,7 @@ export default function MySubPage() {
         // 万一前后端镜像版本不同步也不会白屏
         const d: any = ln.data;
         setLines(Array.isArray(d) ? d : (d?.lines || []));
+        setSocksNodes(!Array.isArray(d) && Array.isArray(d?.socksNodes) ? d.socksNodes : []);
         if (!Array.isArray(d) && d?.allSubToken) setAllSubToken(d.allSubToken);
         setQuantumultXEnabled(!Array.isArray(d) && d?.quantumultXEnabled === true);
       }
@@ -298,6 +301,10 @@ export default function MySubPage() {
             );
           })}
         </div>
+      )}
+
+      {!loading && socksNodes.length > 0 && (
+        <SocksNodesSection nodes={socksNodes} />
       )}
 
       {/* 用法 */}

@@ -1,22 +1,26 @@
-package com.admin;
+package com.admin.service.impl;
 
 import com.admin.common.utils.ClashUtil;
 import com.admin.common.utils.SingboxUtil;
 import com.admin.common.utils.SubNames;
+import com.admin.entity.Forward;
 import com.admin.entity.Inbound;
 import com.admin.entity.InboundUser;
+import com.admin.entity.Node;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * SOCKS5 协议入站配置、分享链接、Clash 节点与显示名测试。
+ * SOCKS5 协议入站配置、分享链接、Clash 节点与订阅隔离测试。
  */
 class SocksProtocolTest {
 
@@ -79,5 +83,32 @@ class SocksProtocolTest {
         assertEquals(Boolean.TRUE, proxy.get("udp"));
 
         assertEquals("SOCKS5", SubNames.protocolDisplayName("socks"));
+    }
+
+    @Test
+    void socksIsExcludedFromAllSubscriptions() {
+        Inbound in = new Inbound();
+        in.setId(9L);
+        in.setProtocol("socks");
+
+        InboundUser iu = new InboundUser();
+        iu.setUuid("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
+        iu.setPassword("mypassword123");
+
+        Node node = new Node();
+        node.setServerIp("203.0.113.5");
+        node.setName("日本机");
+
+        Forward forward = new Forward();
+        forward.setInPort(20001);
+
+        List<String> links = new ArrayList<>();
+        InboundServiceImpl.addSubLinks(links, in, iu, node, forward,
+                SubNames.resolve("socks", null, "日本机", null, false, false, null, null), null);
+        assertTrue(links.isEmpty(), "SOCKS5 不应进入通用订阅链接");
+
+        List<Map<String, Object>> proxies = new ArrayList<>();
+        InboundServiceImpl.addClashProxies(proxies, ClashUtil.newNameSet(), in, iu, node, forward, "日本机 SOCKS5", null);
+        assertTrue(proxies.isEmpty(), "SOCKS5 不应进入 Clash 订阅");
     }
 }
