@@ -24,14 +24,15 @@ server:
   port: 6365
   tomcat:
     uri-encoding: UTF-8
-    max-thread: 800
+    threads:
+      max: 200
     max-connections: 2000
   shutdown: graceful
   error:
     whitelabel:
       enabled: false
-    include-message: always
-    include-binding-errors: always
+    include-message: never
+    include-binding-errors: never
 
 mybatis-plus:
   mapper-locations: classpath*:/mapper/**Mapper.xml

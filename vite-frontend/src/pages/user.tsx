@@ -52,7 +52,8 @@ import {
   getUserLines,
   setLineStatus,
   deleteLine,
-  updateLine
+  updateLine,
+  unassignInboundUser
 } from '@/api';
 import { copyTextToClipboard } from '@/utils/clipboard';
 import { SubQrToggle } from '@/components/sub-qr';
@@ -1727,11 +1728,52 @@ export default function UserPage() {
                       删除
                     </Button>
                   </div>
+                  {Array.isArray(ln.protocols) && ln.protocols.length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                      <span className="text-xs text-default-400">已分协议:</span>
+                      {ln.protocols.map((p: any) => (
+                        <Chip
+                          key={p.id}
+                          size="sm"
+                          variant="flat"
+                          color={p.protocol === 'socks' ? 'warning' : 'secondary'}
+                          onClose={async () => {
+                            if (subUserId == null) return;
+                            const label = `${p.protocol.toUpperCase()}${p.remark ? ` (${p.remark})` : ''}`;
+                            if (!confirm(`确定单独收回该用户的「${ln.nodeName} - ${label}」协议？\n其它已分配协议不受影响。`)) return;
+                            const res = await unassignInboundUser(p.id);
+                            if (res.code === 0) {
+                              toast.success(`已收回协议 ${label}`);
+                              await reloadSubLines(subUserId);
+                            } else {
+                              toast.error(res.msg || '收回失败');
+                            }
+                          }}
+                        >
+                          {p.protocol === 'socks' ? 'SOCKS5' : p.protocol === 'shadowsocks' ? 'SS-2022' : p.protocol.toUpperCase()}
+                          {p.remark ? ` (${p.remark})` : ''}
+                        </Chip>
+                      ))}
+                    </div>
+                  )}
                   {subQuantumultXEnabled && <QuanxSubscription base={subBase} token={ln.subToken} />}
                 </div>
               );
             })}
-            <SocksNodesSection nodes={subSocksNodes} />
+            <SocksNodesSection
+              nodes={subSocksNodes}
+              onRemove={async (item) => {
+                if (subUserId == null || item.inboundUserId == null) return;
+                if (!confirm(`确定单独收回该用户的 SOCKS5 代理（${item.nodeName} ${item.host}:${item.port}）？`)) return;
+                const res = await unassignInboundUser(item.inboundUserId);
+                if (res.code === 0) {
+                  toast.success('已收回该 SOCKS5 代理');
+                  await reloadSubLines(subUserId);
+                } else {
+                  toast.error(res.msg || '收回失败');
+                }
+              }}
+            />
           </ModalBody>
           <ModalFooter>
             <Button variant="light" onPress={onSubModalClose}>关闭</Button>

@@ -1356,6 +1356,7 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
             String token = null;
             int count = 0;
             long lineFlow = 0L; // 这条线路已用流量 = 该线路各协议对应转发的上下行之和
+            com.alibaba.fastjson.JSONArray lineProtocols = new com.alibaba.fastjson.JSONArray();
             String landingName = null;
             if (landingId != null) {
                 com.admin.entity.Landing l = landingMapper.selectById(landingId);
@@ -1380,6 +1381,14 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
                     }
                 }
                 Inbound in = inboundCache.get(iu.getInboundId());
+                if (in != null) {
+                    JSONObject pObj = new JSONObject();
+                    pObj.put("id", iu.getId());
+                    pObj.put("inboundId", in.getId());
+                    pObj.put("protocol", in.getProtocol());
+                    pObj.put("remark", in.getRemark());
+                    lineProtocols.add(pObj);
+                }
                 if (in != null && "socks".equalsIgnoreCase(in.getProtocol()) && node != null && f != null) {
                     String host = linkHost(node);
                     Integer port = f.getInPort();
@@ -1393,6 +1402,7 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
                         String remark = SubNames.resolve(in.getProtocol(), in.getRemark(), displayNodeName,
                                 displayLanding, landingId != null, true, alias, names.inbound(in.getId())).text;
                         JSONObject sn = new JSONObject();
+                        sn.put("inboundUserId", iu.getId());
                         sn.put("inboundId", in.getId());
                         sn.put("nodeId", nodeId);
                         sn.put("nodeName", displayNodeName);
@@ -1436,6 +1446,7 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
             line.put("lineExpTime", lineRec != null ? lineRec.getExpTime() : null);
             line.put("lineStatus", lineStatus);
             line.put("protocolCount", count);
+            line.put("protocols", lineProtocols);
             line.put("subToken", token);
             lines.add(line);
         }

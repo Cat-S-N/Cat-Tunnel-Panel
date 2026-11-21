@@ -12,12 +12,14 @@ import toast from "react-hot-toast";
 import { toastResult } from "@/utils/partial-success";
 import {
   getInboundList,
+  createInbound,
   oneClickRelay,
   testLanding,
   deleteInbound,
   deleteInboundsByNode,
   assignAllToUser,
   assignSelf,
+  getMyLines,
   getNodeList,
   getAllUsers,
   getSpeedLimitList,
@@ -26,6 +28,7 @@ import {
 import { copyTextToClipboard } from "@/utils/clipboard";
 import { SNI_PRESETS, DEFAULT_SNI, cleanSni } from "@/config/sni";
 import { SubQr } from "@/components/sub-qr";
+import { SocksNodesSection, SocksNodeItem } from "@/components/socks-nodes-card";
 import { getSubBase } from "@/utils/sub-base";
 
 /**
@@ -53,19 +56,41 @@ export default function RelayPage() {
   // 「我自己用」:一键把这条中转开给当前管理员自己,完事直接弹订阅链接
   const [selfLoading, setSelfLoading] = useState<string | null>(null);
   const [selfSubUrl, setSelfSubUrl] = useState<string>("");
+  const [selfSocksNodes, setSelfSocksNodes] = useState<SocksNodeItem[]>([]);
   // 中转这边更容易混:同一台前置机可能有好几条落地,弹出来的链接域名部分还都一样
   const [selfLineName, setSelfLineName] = useState<string>("");
   const [selfOpen, setSelfOpen] = useState(false);
+
+  // 中转线路单独补加协议
+  const [addProtoOpen, setAddProtoOpen] = useState(false);
+  const [addProtoForm, setAddProtoForm] = useState<any>({
+    nodeId: null,
+    landingId: null,
+    lineLabel: "",
+    protocol: "socks",
+    sni: DEFAULT_SNI,
+    dest: "",
+    remark: "",
+    wsPath: "",
+    wsHost: "",
+  });
+  const [addProtoLoading, setAddProtoLoading] = useState(false);
 
   const handleAssignSelf = async (nodeId: number, landingId: any, lineName?: string) => {
     const key = `${nodeId}-${landingId}`;
     setSelfLoading(key);
     setSelfLineName(lineName || "");
+    setSelfSocksNodes([]);
     try {
       const res = await assignSelf({ nodeId, relay: true, landingId });
       if (res.code === 0 && res.data?.subToken) {
         // 设了「订阅地址(给车友的)」就用它开头,没设 = 网页地址(和以前一样)
-        setSelfSubUrl(`${await getSubBase()}/api/v1/open_api/sub?token=${res.data.subToken}`);
+        const [sb, myRes] = await Promise.all([getSubBase(), getMyLines().catch(() => null)]);
+        setSelfSubUrl(`${sb}/api/v1/open_api/sub?token=${res.data.subToken}`);
+        const allSocks: SocksNodeItem[] = myRes?.code === 0 && Array.isArray(myRes.data?.socksNodes)
+          ? myRes.data.socksNodes
+          : [];
+        setSelfSocksNodes(allSocks.filter((s) => s.nodeId === nodeId && s.landingId === landingId));
         setSelfOpen(true);
         loadAll();
       } else {
@@ -75,6 +100,69 @@ export default function RelayPage() {
       toast.error("开通失败");
     }
     setSelfLoading(null);
+  };
+
+  const openAddProto = (n: any, landingId: any, landingName: string) => {
+    setAddProtoForm({
+      nodeId: n.id,
+      landingId,
+      lineLabel: `${n.name} → ${landingName}`,
+      protocol: "socks",
+      sni: DEFAULT_SNI,
+      dest: "",
+      remark: "",
+      wsPath: "",
+      wsHost: "",
+    });
+    setAddProtoOpen(true);
+  };
+
+  const handleAddProto = async () => {
+    if (addProtoLoading) return;
+    const isReal = addProtoForm.protocol === "vless" || addProtoForm.protocol === "trojan";
+    if (isReal && !addProtoForm.sni) return toast.error("Reality 协议需要填 SNI");
+    const isWs = addProtoForm.protocol === "vmess-ws";
+    const targetProto = isWs ? "vmess" : addProtoForm.protocol;
+    const targetRemark = (addProtoForm.remark || "").trim();
+    const dup = inbounds.some(
+      (ib) =>
+        ib.nodeId === addProtoForm.nodeId &&
+        ib.landingId === addProtoForm.landingId &&
+        ib.protocol === targetProto &&
+        (ib.remark || "").trim() === targetRemark
+    );
+    if (dup && !window.confirm(`这条中转线路上已经有一个「${protoLabel(targetProto)}」协议，确定要再新建一个重复协议吗？`)) {
+      return;
+    }
+    setAddProtoLoading(true);
+    try {
+      const payload: any = {
+        nodeId: addProtoForm.nodeId,
+        landingId: addProtoForm.landingId,
+        protocol: targetProto,
+        remark: addProtoForm.remark,
+      };
+      if (isWs) {
+        payload.transport = "ws";
+        payload.wsPath = addProtoForm.wsPath || "";
+        payload.wsHost = addProtoForm.wsHost || "";
+      }
+      if (isReal) {
+        payload.sni = cleanSni(addProtoForm.sni);
+        payload.dest = addProtoForm.dest;
+      }
+      const res = await createInbound(payload);
+      if (res.code === 0) {
+        toast.success("中转协议已添加");
+        setAddProtoOpen(false);
+        loadAll();
+      } else {
+        toast.error(res.msg || "添加失败");
+      }
+    } catch (e) {
+      toast.error("添加失败");
+    }
+    setAddProtoLoading(false);
   };
 
   const loadAll = async () => {
@@ -317,6 +405,9 @@ export default function RelayPage() {
                   >
                     🔑 我自己用
                   </Button>
+                  <Button size="sm" color="secondary" variant="flat" onPress={() => openAddProto(n, ln.landingId, landingName)}>
+                    + 协议
+                  </Button>
                   <Button size="sm" color="danger" variant="flat" onPress={() => handleClearNode(n.id, n.name, ln.landingId, landingName)}>
                     清空该条
                   </Button>
@@ -357,6 +448,7 @@ export default function RelayPage() {
               onClick={(e: any) => { if (e.target?.select) e.target.select(); }}
             />
             <SubQr url={selfSubUrl} />
+            {selfSocksNodes.length > 0 && <SocksNodesSection nodes={selfSocksNodes} />}
           </ModalBody>
           <ModalFooter>
             <Button variant="light" onPress={() => setSelfOpen(false)}>关闭</Button>
@@ -524,6 +616,74 @@ export default function RelayPage() {
           <ModalFooter>
             <Button variant="light" onPress={() => setBuildOpen(false)}>取消</Button>
             <Button color="secondary" isLoading={buildLoading} onPress={handleBuild}>保存并搭建</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+      {/* 给中转线路单独补加一个协议 */}
+      <Modal isOpen={addProtoOpen} onClose={() => setAddProtoOpen(false)}>
+        <ModalContent>
+          <ModalHeader>+ 给中转线路加协议（{addProtoForm.lineLabel}）</ModalHeader>
+          <ModalBody className="space-y-3">
+            <Select
+              label="协议"
+              maxListboxHeight={450}
+              selectedKeys={[addProtoForm.protocol]}
+              onSelectionChange={(k) => setAddProtoForm({ ...addProtoForm, protocol: String(Array.from(k)[0]) })}
+            >
+              <SelectItem key="vless">VLESS-Reality(无域名,推荐)</SelectItem>
+              <SelectItem key="trojan">Trojan-Reality(无域名)</SelectItem>
+              <SelectItem key="vmess">VMess(无域名,兼容老客户端)</SelectItem>
+              <SelectItem key="vmess-ws">VMess + WebSocket(可挂 CDN/反代)</SelectItem>
+              <SelectItem key="hysteria2">Hysteria2(QUIC,快,自签证书)</SelectItem>
+              <SelectItem key="tuic">TUIC(QUIC,自签证书)</SelectItem>
+              <SelectItem key="anytls">AnyTLS(自签证书)</SelectItem>
+              <SelectItem key="shadowsocks">Shadowsocks-2022(无TLS,全客户端通用)</SelectItem>
+              <SelectItem key="socks">SOCKS5(账号密码认证,独立展示不进订阅)</SelectItem>
+            </Select>
+            {addProtoForm.protocol === "vmess-ws" && (
+              <>
+                <Input
+                  label="WebSocket 路径"
+                  placeholder="留空自动随机,如 /a1b2c3d4"
+                  value={addProtoForm.wsPath || ""}
+                  onChange={(e) => setAddProtoForm({ ...addProtoForm, wsPath: e.target.value })}
+                />
+                <Input
+                  label="Host 头(可选)"
+                  placeholder="套 CDN 时填你的域名,直连留空"
+                  value={addProtoForm.wsHost || ""}
+                  onChange={(e) => setAddProtoForm({ ...addProtoForm, wsHost: e.target.value })}
+                />
+              </>
+            )}
+            {(addProtoForm.protocol === "vless" || addProtoForm.protocol === "trojan") && (
+              <>
+                <Autocomplete
+                  label="伪装域名(Reality 借壳)"
+                  allowsCustomValue
+                  defaultItems={SNI_PRESETS}
+                  inputValue={addProtoForm.sni}
+                  onInputChange={(v) => setAddProtoForm({ ...addProtoForm, sni: v })}
+                  onSelectionChange={(k) => { if (k) setAddProtoForm({ ...addProtoForm, sni: String(k) }); }}
+                >
+                  {(item: any) => <AutocompleteItem key={item.value} description={item.desc || undefined}>{item.label}</AutocompleteItem>}
+                </Autocomplete>
+                <Input
+                  label="Reality 目标(留空=同 SNI)"
+                  value={addProtoForm.dest}
+                  onChange={(e) => setAddProtoForm({ ...addProtoForm, dest: e.target.value })}
+                />
+              </>
+            )}
+            <Input
+              label="备注"
+              value={addProtoForm.remark}
+              onChange={(e) => setAddProtoForm({ ...addProtoForm, remark: e.target.value })}
+            />
+          </ModalBody>
+          <ModalFooter>
+            <Button variant="light" onPress={() => setAddProtoOpen(false)}>取消</Button>
+            <Button color="primary" isLoading={addProtoLoading} onPress={handleAddProto}>创建</Button>
           </ModalFooter>
         </ModalContent>
       </Modal>

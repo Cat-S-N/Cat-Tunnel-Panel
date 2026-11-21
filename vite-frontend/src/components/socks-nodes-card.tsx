@@ -5,6 +5,7 @@ import toast from "react-hot-toast";
 import { copyTextToClipboard } from "@/utils/clipboard";
 
 export interface SocksNodeItem {
+  inboundUserId?: number;
   inboundId: number;
   nodeId: number;
   nodeName: string;
@@ -25,7 +26,13 @@ export interface SocksNodeItem {
  * SOCKS5 代理单独展示区（不加入通用订阅与 Clash 订阅）。
  * 提供 IP:端口:账号:密码 与 socks5:// 链接两种常用复制格式。
  */
-export function SocksNodesSection({ nodes }: { nodes: SocksNodeItem[] }) {
+export function SocksNodesSection({
+  nodes,
+  onRemove,
+}: {
+  nodes: SocksNodeItem[];
+  onRemove?: (item: SocksNodeItem) => void;
+}) {
   if (!nodes || nodes.length === 0) return null;
 
   return (
@@ -109,6 +116,17 @@ export function SocksNodesSection({ nodes }: { nodes: SocksNodeItem[] }) {
                 >
                   复制 socks5:// 链接
                 </Button>
+                {onRemove && item.inboundUserId != null && (
+                  <Button
+                    size="sm"
+                    variant="light"
+                    color="danger"
+                    className="ml-auto"
+                    onPress={() => onRemove(item)}
+                  >
+                    收回
+                  </Button>
+                )}
               </div>
             </div>
           );

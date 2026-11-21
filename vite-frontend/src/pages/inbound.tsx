@@ -18,6 +18,7 @@ import {
   deleteInboundsByNode,
   assignAllToUser,
   assignSelf,
+  getMyLines,
   getNodeList,
   getAllUsers,
   getSpeedLimitList,
@@ -26,6 +27,7 @@ import {
 import { copyTextToClipboard } from "@/utils/clipboard";
 import { SNI_PRESETS, DEFAULT_SNI, cleanSni } from "@/config/sni";
 import { SubQr } from "@/components/sub-qr";
+import { SocksNodesSection, SocksNodeItem } from "@/components/socks-nodes-card";
 import { getSubBase } from "@/utils/sub-base";
 
 /**
@@ -58,6 +60,7 @@ export default function InboundPage() {
   const [selfLoading, setSelfLoading] = useState<number | null>(null);
   const [pushing, setPushing] = useState<number | null>(null);
   const [selfSubUrl, setSelfSubUrl] = useState<string>("");
+  const [selfSocksNodes, setSelfSocksNodes] = useState<SocksNodeItem[]>([]);
   const [selfOpen, setSelfOpen] = useState(false);
   // 订阅链接的域名部分永远是【面板地址】,几台机器点出来长得几乎一样,
   // 只有末尾 token 不同 —— 不写清楚是哪台机器,很容易以为"点第二台弹的还是第一台"
@@ -66,11 +69,17 @@ export default function InboundPage() {
   const handleAssignSelf = async (nodeId: number, nodeName?: string) => {
     setSelfLoading(nodeId);
     setSelfNodeName(nodeName || "");
+    setSelfSocksNodes([]);
     try {
       const res = await assignSelf({ nodeId });
       if (res.code === 0 && res.data?.subToken) {
         // 设了「订阅地址(给车友的)」就用它开头,没设 = 网页地址(和以前一样)
-        setSelfSubUrl(`${await getSubBase()}/api/v1/open_api/sub?token=${res.data.subToken}`);
+        const [sb, myRes] = await Promise.all([getSubBase(), getMyLines().catch(() => null)]);
+        setSelfSubUrl(`${sb}/api/v1/open_api/sub?token=${res.data.subToken}`);
+        const allSocks: SocksNodeItem[] = myRes?.code === 0 && Array.isArray(myRes.data?.socksNodes)
+          ? myRes.data.socksNodes
+          : [];
+        setSelfSocksNodes(allSocks.filter((s) => s.nodeId === nodeId && !s.landingId));
         setSelfOpen(true);
         loadAll();
       } else {
@@ -111,8 +120,17 @@ export default function InboundPage() {
   const isReality = (p: string) => p === "vless" || p === "trojan";
 
   const handleCreate = async () => {
+    if (createLoading) return;
     if (!createForm.nodeId) return toast.error("请选择节点");
     if (isReality(createForm.protocol) && !createForm.sni) return toast.error("Reality 协议需要填 SNI");
+    const targetProto = createForm.protocol === "vmess-ws" ? "vmess" : createForm.protocol;
+    const targetRemark = (createForm.remark || "").trim();
+    const dup = inbounds.some(
+      (ib) => ib.nodeId === createForm.nodeId && !ib.landingId && ib.protocol === targetProto && (ib.remark || "").trim() === targetRemark
+    );
+    if (dup && !window.confirm(`这台机器上已经有一个「${protoLabel(targetProto)}」${targetRemark ? `(${targetRemark})` : ""} 协议，确定要再新建一个重复协议吗？`)) {
+      return;
+    }
     setCreateLoading(true);
     try {
       // 界面上「VMess + WebSocket」是一个独立选项,但后端没有 vmess-ws 这个协议 ——
@@ -434,6 +452,7 @@ export default function InboundPage() {
               onClick={(e: any) => { if (e.target?.select) e.target.select(); }}
             />
             <SubQr url={selfSubUrl} />
+            {selfSocksNodes.length > 0 && <SocksNodesSection nodes={selfSocksNodes} />}
           </ModalBody>
           <ModalFooter>
             <Button variant="light" onPress={() => setSelfOpen(false)}>关闭</Button>
