@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Button } from "@heroui/button";
 import { Chip } from "@heroui/chip";
 import { Spinner } from "@heroui/spinner";
 import toast from "react-hot-toast";
 import { getSubAccessLogs } from "@/api";
+import { copyTextToClipboard } from "@/utils/clipboard";
 
 interface SubAccessLogRow {
   id: number;
@@ -28,6 +29,32 @@ const subTypeBadge = (t: string): { label: string; color: "primary" | "secondary
   if (lower === "clash") return { label: "Clash", color: "secondary" };
   if (lower === "quanx") return { label: "QX", color: "warning" };
   return { label: "SUB", color: "primary" };
+};
+
+type ChipColor = "default" | "primary" | "secondary" | "success" | "warning" | "danger";
+
+const detectClientBadge = (userAgent: string): { label: string; color: ChipColor } => {
+  const ua = (userAgent || "").trim();
+  if (!ua) return { label: "未知客户端", color: "default" };
+  const lower = ua.toLowerCase();
+  if (lower.includes("clash-verge") || lower.includes("clash verge")) return { label: "Clash Verge", color: "secondary" };
+  if (lower.includes("mihomo") || lower.includes("clash.meta")) return { label: "Mihomo", color: "secondary" };
+  if (lower.includes("flclash")) return { label: "FlClash", color: "secondary" };
+  if (lower.includes("karing")) return { label: "Karing", color: "primary" };
+  if (lower.includes("shadowrocket")) return { label: "Shadowrocket", color: "primary" };
+  if (lower.includes("quantumult")) return { label: "Quantumult X", color: "warning" };
+  if (lower.includes("sing-box") || lower.includes("singbox")) return { label: "sing-box", color: "success" };
+  if (lower.includes("v2rayng")) return { label: "v2rayNG", color: "success" };
+  if (lower.includes("v2rayn")) return { label: "v2rayN", color: "success" };
+  if (lower.includes("stash")) return { label: "Stash", color: "warning" };
+  if (lower.includes("surge")) return { label: "Surge", color: "warning" };
+  if (lower.includes("hiddify")) return { label: "Hiddify", color: "primary" };
+  if (lower.includes("clash")) return { label: "Clash", color: "secondary" };
+  if (lower.includes("curl/") || lower.includes("wget/")) return { label: "curl / wget", color: "default" };
+  if (lower.includes("mozilla/") || lower.includes("chrome/") || lower.includes("safari/")) {
+    return { label: "浏览器", color: "default" };
+  }
+  return { label: "其他客户端", color: "default" };
 };
 
 /**
@@ -81,6 +108,27 @@ export function SubAccessLogsPanel({
     }
   };
 
+  const handleCopyIp = async (ip: string) => {
+    if (!ip || ip === "-") return;
+    const ok = await copyTextToClipboard(ip);
+    if (ok) {
+      toast.success(`已复制 IP: ${ip}`);
+    } else {
+      toast.error("复制失败");
+    }
+  };
+
+  const ipStats = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of logs) {
+      const ip = (row.ip || "").trim() || "-";
+      counts.set(ip, (counts.get(ip) || 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([ip, count]) => ({ ip, count }))
+      .sort((a, b) => b.count - a.count);
+  }, [logs]);
+
   return (
     <div className={compact ? "pt-1" : "border border-default-200 rounded-lg p-3"}>
       <div className="flex items-center justify-between gap-2">
@@ -121,6 +169,25 @@ export function SubAccessLogsPanel({
                 )}
               </div>
 
+              {ipStats.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                  <span className="text-default-500 shrink-0">IP 分布：</span>
+                  {ipStats.map((item) => (
+                    <Chip
+                      key={item.ip}
+                      size="sm"
+                      variant={ipStats.length > 1 ? "solid" : "flat"}
+                      color={ipStats.length > 1 ? "warning" : "default"}
+                      className="h-5 text-[11px] font-mono cursor-pointer"
+                      onClick={() => handleCopyIp(item.ip)}
+                      title="点击复制 IP"
+                    >
+                      {item.ip} × {item.count}
+                    </Chip>
+                  ))}
+                </div>
+              )}
+
               {logs.length === 0 ? (
                 <div className="text-xs text-default-400 py-2">
                   暂无拉取记录（用户更新订阅后会自动记录 IP 与客户端）
@@ -129,19 +196,30 @@ export function SubAccessLogsPanel({
                 <div className="max-h-48 overflow-y-auto border border-default-100 rounded divide-y divide-default-100">
                   {logs.map((row) => {
                     const badge = subTypeBadge(row.subType);
+                    const client = detectClientBadge(row.userAgent);
                     return (
                       <div key={row.id} className="px-2 py-1.5 text-xs flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span className="text-default-400 font-mono shrink-0">{fmtDateTime(row.createdTime)}</span>
                         <Chip size="sm" variant="flat" color={badge.color} className="h-5 text-[11px]">
                           {badge.label}
                         </Chip>
-                        <span className="font-mono font-medium text-foreground">{row.ip || "-"}</span>
+                        <Chip size="sm" variant="flat" color={client.color} className="h-5 text-[11px]">
+                          {client.label}
+                        </Chip>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyIp(row.ip)}
+                          className="font-mono font-medium text-foreground hover:text-primary hover:underline cursor-pointer"
+                          title="点击复制 IP"
+                        >
+                          {row.ip || "-"}
+                        </button>
                         {row.nodeName && (
                           <span className="text-default-500 shrink-0">[{row.nodeName}]</span>
                         )}
                         <span
                           className="text-default-400 truncate max-w-[260px]"
-                          title={row.userAgent || ""}
+                          title={row.userAgent || "-"}
                         >
                           {row.userAgent || "未知客户端"}
                         </span>
