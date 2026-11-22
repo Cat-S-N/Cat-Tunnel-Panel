@@ -43,14 +43,14 @@
 #### 方式一：一键脚本安装
 
 ```bash
-curl -L https://raw.githubusercontent.com/Cat-S-N/TMS/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
+curl -L https://raw.githubusercontent.com/Cat-S-N/Cat-Tunnel-Panel/main/panel_install.sh -o panel_install.sh && chmod +x panel_install.sh && ./panel_install.sh
 ```
 
 #### 方式二：源码构建部署（推荐二次开发使用）
 
 ```bash
-git clone https://github.com/Cat-S-N/TMS.git
-cd TMS
+git clone https://github.com/Cat-S-N/Cat-Tunnel-Panel.git
+cd Cat-Tunnel-Panel
 docker compose -f docker-compose-hybrid.yml up -d --build
 ```
 
@@ -63,7 +63,7 @@ docker compose -f docker-compose-hybrid.yml up -d --build
 若国内机器直连 GitHub 较慢，可加 `-c` 参数并配合镜像加速：
 
 ```bash
-curl -L https://ghfast.top/https://raw.githubusercontent.com/Cat-S-N/TMS/main/install.sh -o install.sh && chmod +x install.sh && ./install.sh -c -a 面板地址:端口 -s 节点密钥
+curl -L https://ghfast.top/https://raw.githubusercontent.com/Cat-S-N/Cat-Tunnel-Panel/main/install.sh -o install.sh && chmod +x install.sh && ./install.sh -c -a 面板地址:端口 -s 节点密钥
 ```
 
 ---

@@ -42,11 +42,11 @@ public class VersionController extends BaseController {
      * 按构建成功的 head_sha 比,提示亮起来时镜像一定已经在 GHCR 上了。
      */
     private static final String RUNS_API =
-            "https://api.github.com/repos/Cat-S-N/TMS/actions/runs"
+            "https://api.github.com/repos/Cat-S-N/Cat-Tunnel-Panel/actions/runs"
                     + "?branch=main&status=success&per_page=1";
 
     private static final String COMMITS_API =
-            "https://api.github.com/repos/Cat-S-N/TMS/commits/main";
+            "https://api.github.com/repos/Cat-S-N/Cat-Tunnel-Panel/commits/main";
 
     /** GitHub 未认证接口每小时每 IP 只有 60 次,查一次缓存 1 小时 */
     private static final long CACHE_TTL_MS = 60 * 60 * 1000L;
