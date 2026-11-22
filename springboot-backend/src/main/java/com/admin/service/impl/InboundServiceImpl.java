@@ -1227,7 +1227,7 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
                 return SingboxUtil.buildSocksLink(uuid, password, ip, port, remark);
             case "http":
             case "https":
-                return SingboxUtil.buildHttpLink(p, uuid, password, ip, port, remark);
+                return SingboxUtil.buildHttpLink(in.getProtocol(), uuid, password, ip, port, remark);
             default: // vless
                 return SingboxUtil.buildVlessRealityLink(uuid, ip, port, in.getSni(), in.getPublicKey(), in.getShortId(), remark);
         }
