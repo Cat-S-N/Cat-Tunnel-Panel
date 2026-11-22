@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Input } from "@heroui/input";
@@ -154,6 +154,25 @@ export default function ForwardPage() {
   const [forwards, setForwards] = useState<Forward[]>([]);
   // 搭协议/搭中转自动建的管道,默认收起来;排障时才展开看
   const [showProtocolForwards, setShowProtocolForwards] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'running' | 'paused'>('all');
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [sortBy, setSortBy] = useState<'default' | 'flow_desc'>('default');
+
+  const forwardStats = useMemo(() => {
+    const base = showProtocolForwards ? forwards : forwards.filter(f => !f.protocolManaged);
+    let running = 0;
+    let paused = 0;
+    let totalFlow = 0;
+    for (const f of base) {
+      if (f.status === 1) {
+        running += 1;
+      } else {
+        paused += 1;
+      }
+      totalFlow += (f.inFlow || 0) + (f.outFlow || 0);
+    }
+    return { total: base.length, running, paused, totalFlow };
+  }, [forwards, showProtocolForwards]);
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
   // 目标机器上已搭的协议:用来给「远程地址」做一键填入,免得手打 127.0.0.1:端口
   const [inbounds, setInbounds] = useState<any[]>([]);
@@ -1196,10 +1215,32 @@ export default function ForwardPage() {
         filteredForwards = filteredForwards.filter(forward => forward.userId === currentUserId);
       }
     }
+
+    if (statusFilter === 'running') {
+      filteredForwards = filteredForwards.filter(f => f.status === 1);
+    } else if (statusFilter === 'paused') {
+      filteredForwards = filteredForwards.filter(f => f.status !== 1);
+    }
+
+    const kw = searchKeyword.trim().toLowerCase();
+    if (kw) {
+      filteredForwards = filteredForwards.filter((f) => {
+        const fields = [f.name, f.tunnelName, f.inIp, String(f.inPort || ''), f.remoteAddr];
+        return fields.some((field) => field && field.toLowerCase().includes(kw));
+      });
+    }
     
     // 确保过滤后的转发列表有效
     if (!filteredForwards || filteredForwards.length === 0) {
       return [];
+    }
+
+    if (sortBy === 'flow_desc') {
+      return [...filteredForwards].sort((a, b) => {
+        const aFlow = (a.inFlow || 0) + (a.outFlow || 0);
+        const bFlow = (b.inFlow || 0) + (b.outFlow || 0);
+        return bFlow - aFlow;
+      });
     }
     
     // 优先使用数据库中的 inx 字段进行排序
@@ -1447,8 +1488,82 @@ export default function ForwardPage() {
 
       <div className="px-3 lg:px-6 py-8">
         {/* 页面头部 */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex-1 min-w-0">
+        <div className="flex flex-col gap-3 mb-6">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Chip size="sm" variant="flat" color="default">
+                总规则：{forwardStats.total}
+              </Chip>
+              <Chip size="sm" variant="flat" color="success">
+                正常：{forwardStats.running}
+              </Chip>
+              <Chip size="sm" variant="flat" color={forwardStats.paused > 0 ? "warning" : "default"}>
+                已暂停：{forwardStats.paused}
+              </Chip>
+              <Chip size="sm" variant="flat" color="primary">
+                总流量：{formatFlow(forwardStats.totalFlow)}
+              </Chip>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1">
+                {(
+                  [
+                    { key: 'all', label: '全部' },
+                    { key: 'running', label: '正常' },
+                    { key: 'paused', label: '已暂停' },
+                  ] as const
+                ).map((item) => (
+                  <Button
+                    key={item.key}
+                    size="sm"
+                    variant={statusFilter === item.key ? 'solid' : 'flat'}
+                    color={
+                      statusFilter === item.key
+                        ? item.key === 'running'
+                          ? 'success'
+                          : item.key === 'paused'
+                          ? 'warning'
+                          : 'primary'
+                        : 'default'
+                    }
+                    onPress={() => setStatusFilter(item.key)}
+                  >
+                    {item.label}
+                  </Button>
+                ))}
+              </div>
+              <div className="flex items-center gap-1">
+                {(
+                  [
+                    { key: 'default', label: '默认排序' },
+                    { key: 'flow_desc', label: '总流量降序' },
+                  ] as const
+                ).map((item) => (
+                  <Button
+                    key={item.key}
+                    size="sm"
+                    variant={sortBy === item.key ? 'solid' : 'flat'}
+                    color={sortBy === item.key ? 'secondary' : 'default'}
+                    onPress={() => setSortBy(item.key)}
+                  >
+                    {item.label}
+                  </Button>
+                ))}
+              </div>
+              <Input
+                size="sm"
+                className="w-56"
+                placeholder="搜索名称 / 隧道 / IP / 端口"
+                isClearable
+                value={searchKeyword}
+                onValueChange={setSearchKeyword}
+                onClear={() => setSearchKeyword('')}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div className="flex-1 min-w-0">
             {protocolForwardCount > 0 && (
               <div className="text-xs text-default-500 flex items-center gap-2 flex-wrap">
                 <span>
@@ -1523,6 +1638,7 @@ export default function ForwardPage() {
             </Button>
             
         
+          </div>
           </div>
         </div>
 
@@ -1604,8 +1720,29 @@ export default function ForwardPage() {
                     </svg>
                   </div>
                   <div>
-                    <h3 className="text-lg font-semibold text-foreground">暂无转发配置</h3>
-                    <p className="text-default-500 text-sm mt-1">还没有创建任何转发配置，点击上方按钮开始创建</p>
+                    <h3 className="text-lg font-semibold text-foreground">
+                      {statusFilter !== 'all' || searchKeyword.trim() ? '无匹配转发规则' : '暂无转发配置'}
+                    </h3>
+                    <p className="text-default-500 text-sm mt-1">
+                      {statusFilter !== 'all' || searchKeyword.trim()
+                        ? '当前筛选或搜索条件下没有匹配的转发规则'
+                        : '还没有创建任何转发配置，点击上方按钮开始创建'}
+                    </p>
+                    {(statusFilter !== 'all' || searchKeyword.trim()) && (
+                      <Button
+                        size="sm"
+                        color="primary"
+                        variant="flat"
+                        className="mt-3"
+                        onPress={() => {
+                          setStatusFilter('all');
+                          setSearchKeyword('');
+                          setSortBy('default');
+                        }}
+                      >
+                        重置筛选
+                      </Button>
+                    )}
                   </div>
                 </div>
               </CardBody>
@@ -1644,8 +1781,29 @@ export default function ForwardPage() {
                     </svg>
                   </div>
                   <div>
-                    <h3 className="text-lg font-semibold text-foreground">暂无转发配置</h3>
-                    <p className="text-default-500 text-sm mt-1">还没有创建任何转发配置，点击上方按钮开始创建</p>
+                    <h3 className="text-lg font-semibold text-foreground">
+                      {statusFilter !== 'all' || searchKeyword.trim() ? '无匹配转发规则' : '暂无转发配置'}
+                    </h3>
+                    <p className="text-default-500 text-sm mt-1">
+                      {statusFilter !== 'all' || searchKeyword.trim()
+                        ? '当前筛选或搜索条件下没有匹配的转发规则'
+                        : '还没有创建任何转发配置，点击上方按钮开始创建'}
+                    </p>
+                    {(statusFilter !== 'all' || searchKeyword.trim()) && (
+                      <Button
+                        size="sm"
+                        color="primary"
+                        variant="flat"
+                        className="mt-3"
+                        onPress={() => {
+                          setStatusFilter('all');
+                          setSearchKeyword('');
+                          setSortBy('default');
+                        }}
+                      >
+                        重置筛选
+                      </Button>
+                    )}
                   </div>
                 </div>
               </CardBody>

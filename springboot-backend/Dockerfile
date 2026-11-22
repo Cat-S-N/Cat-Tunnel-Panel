@@ -26,15 +26,27 @@ ENV LC_ALL=en_US.UTF-8
 
 # Ubuntu 24.04 起源配置在 /etc/apt/sources.list.d/ubuntu.sources(deb822),老的 sources.list 只剩注释,
 # 只改它等于没换源(2026-11-11 GitHub 构建机解析不了 *.ubuntu.com、连续失败才发现)。两处都换;arm64 走 ports
-RUN for f in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do \
-        if [ -f "$f" ]; then sed -i -e 's#http://archive.ubuntu.com#http://mirrors.ustc.edu.cn#g' \
-            -e 's#http://security.ubuntu.com#http://mirrors.ustc.edu.cn#g' \
-            -e 's#http://ports.ubuntu.com#http://mirrors.ustc.edu.cn#g' "$f"; fi; \
+RUN mkdir -p /tmp/apt-bak \
+    && for f in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do \
+        [ -f "$f" ] && cp "$f" /tmp/apt-bak/$(basename "$f"); \
     done \
-    && apt-get update \
+    && replace_mirror() { \
+        for f in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do \
+            [ -f "/tmp/apt-bak/$(basename "$f")" ] && cp "/tmp/apt-bak/$(basename "$f")" "$f" \
+                && sed -i -e "s#http://archive.ubuntu.com#$1#g" \
+                          -e "s#http://security.ubuntu.com#$1#g" \
+                          -e "s#http://ports.ubuntu.com#$1#g" "$f"; \
+        done; \
+    } \
+    && (apt-get -o Acquire::Retries=3 update \
+        || (replace_mirror "http://mirrors.aliyun.com" && apt-get -o Acquire::Retries=3 update) \
+        || (replace_mirror "http://mirrors.ustc.edu.cn" && apt-get -o Acquire::Retries=3 update) \
+        || (for f in /etc/apt/sources.list /etc/apt/sources.list.d/ubuntu.sources; do \
+                [ -f "/tmp/apt-bak/$(basename "$f")" ] && cp "/tmp/apt-bak/$(basename "$f")" "$f"; \
+            done && apt-get -o Acquire::Retries=3 update)) \
     && apt-get install -y --no-install-recommends fontconfig fonts-dejavu \
     && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /tmp/apt-bak /var/lib/apt/lists/*
 
 COPY --from=build /app/target/*.jar app.jar
 EXPOSE 6365
