@@ -95,7 +95,17 @@ public class LogAspect {
         } else {
             log.info(logMessage);
         }
+
+        if (auditLogStore != null) {
+            try {
+                auditLogStore.recordIfAuditable(request.getHeader("Authorization"), ipAddr, controllerMethod, requestParams, returnValue);
+            } catch (Throwable ignored) {
+            }
+        }
     }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.admin.common.utils.AuditLogStore auditLogStore;
 
 
     /**

@@ -63,6 +63,48 @@ public class SchemaMigration implements ApplicationRunner {
         // 节点管理员权限：允许非超管用户管理指定的节点（逗号分隔的 node_id 列表）
         addColumnIfMissing("user", "managed_nodes",
                 "ALTER TABLE `user` ADD COLUMN `managed_nodes` VARCHAR(512) NULL COMMENT '可管理的节点ID列表(逗号分隔)'");
+
+        ensureTables();
+    }
+
+    /** 新增功能表按需建表（IF NOT EXISTS，异常只记日志，不阻塞面板启动） */
+    private void ensureTables() {
+        execDdlQuietly("CREATE TABLE IF NOT EXISTS `sub_access_log` ("
+                + "`id` BIGINT NOT NULL AUTO_INCREMENT,"
+                + "`user_id` BIGINT NOT NULL COMMENT '车友ID',"
+                + "`node_id` BIGINT NOT NULL DEFAULT 0 COMMENT '线路节点ID(0=聚合订阅)',"
+                + "`sub_type` VARCHAR(16) NOT NULL COMMENT 'sub / clash / quanx',"
+                + "`ip` VARCHAR(64) NOT NULL COMMENT '请求来源IP',"
+                + "`user_agent` VARCHAR(255) NOT NULL DEFAULT '' COMMENT '客户端UA',"
+                + "`created_time` BIGINT NOT NULL COMMENT '访问时间戳(ms)',"
+                + "PRIMARY KEY (`id`),"
+                + "KEY `idx_sub_log_user_time` (`user_id`, `created_time`),"
+                + "KEY `idx_sub_log_time` (`created_time`)"
+                + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='订阅拉取记录'");
+
+        execDdlQuietly("CREATE TABLE IF NOT EXISTS `audit_log` ("
+                + "`id` BIGINT NOT NULL AUTO_INCREMENT,"
+                + "`user_id` BIGINT NULL COMMENT '操作人ID',"
+                + "`username` VARCHAR(64) NOT NULL DEFAULT '' COMMENT '操作人用户名',"
+                + "`role_label` VARCHAR(32) NOT NULL DEFAULT '' COMMENT '角色标识',"
+                + "`action` VARCHAR(128) NOT NULL COMMENT '操作摘要',"
+                + "`method` VARCHAR(160) NOT NULL COMMENT '控制器方法',"
+                + "`ip` VARCHAR(64) NOT NULL DEFAULT '' COMMENT '操作IP',"
+                + "`params` VARCHAR(1000) NOT NULL DEFAULT '' COMMENT '脱敏请求参数',"
+                + "`result_code` INT NOT NULL DEFAULT 0 COMMENT '返回状态码',"
+                + "`created_time` BIGINT NOT NULL COMMENT '操作时间戳(ms)',"
+                + "PRIMARY KEY (`id`),"
+                + "KEY `idx_audit_time` (`created_time`),"
+                + "KEY `idx_audit_user` (`user_id`)"
+                + ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='操作审计日志'");
+    }
+
+    private void execDdlQuietly(String ddl) {
+        try (Connection c = dataSource.getConnection(); Statement st = c.createStatement()) {
+            st.executeUpdate(ddl);
+        } catch (Exception e) {
+            log.warn("自动建表检查失败: {}", e.getMessage());
+        }
     }
 
     /** 列不存在才执行 ddl;任何异常都吞掉(只记日志),不能因为迁移失败导致面板起不来 */

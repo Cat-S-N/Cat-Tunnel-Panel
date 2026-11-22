@@ -1,35 +1,21 @@
 package com.admin;
 
-import com.admin.common.dto.GostDto;
-import com.admin.common.utils.GostUtil;
-import com.admin.entity.Forward;
-import com.admin.entity.Tunnel;
-import com.admin.entity.User;
-import com.admin.entity.UserTunnel;
-import com.admin.service.ForwardService;
-import com.admin.service.TunnelService;
-import com.admin.service.UserService;
-import com.admin.service.UserTunnelService;
-import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
-import javax.annotation.Resource;
-import java.util.Date;
-import java.util.List;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
-
-@SpringBootTest
+/**
+ * 入口类注解自检（无外部 MySQL 依赖，确保异步与定时调度开启）。
+ */
 class AdminApplicationTests {
 
-
-
     @Test
-    public void test(){
-
+    void applicationAnnotationsPresent() {
+        assertTrue(AdminApplication.class.isAnnotationPresent(SpringBootApplication.class));
+        assertTrue(AdminApplication.class.isAnnotationPresent(EnableAsync.class));
+        assertTrue(AdminApplication.class.isAnnotationPresent(EnableScheduling.class));
     }
-
-
-
-
 }

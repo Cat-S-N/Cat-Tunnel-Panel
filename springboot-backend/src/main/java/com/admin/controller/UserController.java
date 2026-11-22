@@ -155,6 +155,52 @@ public class UserController extends BaseController {
         return userService.reset(resetFlowDto);
     }
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.admin.common.utils.AuditLogStore auditLogStore;
 
+    /** 分页查询操作审计日志（仅超级管理员可用） */
+    @RequireRole
+    @PostMapping("/audit-logs")
+    public R auditLogs(@RequestBody(required = false) Map<String, Object> body) {
+        if (auditLogStore == null) {
+            return R.err("审计日志服务未初始化");
+        }
+        int page = 1;
+        int size = 20;
+        String keyword = null;
+        Long userId = null;
+        if (body != null) {
+            if (body.get("page") != null) {
+                try { page = Integer.parseInt(String.valueOf(body.get("page"))); } catch (NumberFormatException ignored) {}
+            }
+            if (body.get("size") != null) {
+                try { size = Integer.parseInt(String.valueOf(body.get("size"))); } catch (NumberFormatException ignored) {}
+            }
+            if (body.get("keyword") != null) {
+                keyword = String.valueOf(body.get("keyword"));
+            }
+            if (body.get("userId") != null) {
+                try {
+                    String s = String.valueOf(body.get("userId")).trim();
+                    if (!s.isEmpty() && !"null".equals(s)) {
+                        userId = Long.valueOf(s);
+                    }
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+        return R.ok(auditLogStore.query(page, size, keyword, userId));
+    }
+
+    /** 清空全部操作审计日志（仅超级管理员可用） */
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/audit-logs-clear")
+    public R clearAuditLogs() {
+        if (auditLogStore == null) {
+            return R.err("审计日志服务未初始化");
+        }
+        int deleted = auditLogStore.clearAll();
+        return R.ok("已清空 " + deleted + " 条操作记录");
+    }
 
 }

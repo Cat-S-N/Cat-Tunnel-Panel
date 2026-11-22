@@ -17,6 +17,7 @@ import { copyTextToClipboard } from "@/utils/clipboard";
 import { getSubBase } from "@/utils/sub-base";
 import { SubQrToggle } from "@/components/sub-qr";
 import { SocksNodesSection, SocksNodeItem } from "@/components/socks-nodes-card";
+import { SubAccessLogsPanel } from "@/components/sub-access-logs-panel";
 
 const GB = 1024 * 1024 * 1024;
 const fmtGB = (bytes: number) => `${((bytes || 0) / GB).toFixed(2)} GB`;
@@ -285,6 +286,7 @@ export function NodeAssignedUsersModal({
                       }}
                     />
                   )}
+                  <SubAccessLogsPanel userId={ln.userId} nodeId={ln.nodeId} compact />
                 </div>
               );
             })

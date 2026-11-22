@@ -454,3 +454,40 @@ CREATE TABLE IF NOT EXISTS `inbound_line` (
   KEY `idx_line_user` (`user_id`),
   KEY `idx_line_user_node` (`user_id`, `node_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+
+-- ------------------------------------------------------------
+-- sub_access_log: 订阅拉取记录（防订阅泄露）
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `sub_access_log` (
+  `id`           bigint(20)   NOT NULL AUTO_INCREMENT,
+  `user_id`      bigint(20)   NOT NULL COMMENT '车友ID',
+  `node_id`      bigint(20)   NOT NULL DEFAULT 0 COMMENT '线路节点ID(0=聚合订阅)',
+  `sub_type`     varchar(16)  NOT NULL COMMENT 'sub / clash / quanx',
+  `ip`           varchar(64)  NOT NULL COMMENT '请求来源IP',
+  `user_agent`   varchar(255) NOT NULL DEFAULT '' COMMENT '客户端UA',
+  `created_time` bigint(20)   NOT NULL COMMENT '访问时间戳(ms)',
+  PRIMARY KEY (`id`),
+  KEY `idx_sub_log_user_time` (`user_id`, `created_time`),
+  KEY `idx_sub_log_time` (`created_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='订阅拉取记录';
+
+
+-- ------------------------------------------------------------
+-- audit_log: 操作审计日志
+-- ------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS `audit_log` (
+  `id`           bigint(20)    NOT NULL AUTO_INCREMENT,
+  `user_id`      bigint(20)    DEFAULT NULL COMMENT '操作人ID',
+  `username`     varchar(64)   NOT NULL DEFAULT '' COMMENT '操作人用户名',
+  `role_label`   varchar(32)   NOT NULL DEFAULT '' COMMENT '角色标识',
+  `action`       varchar(128)  NOT NULL COMMENT '操作摘要',
+  `method`       varchar(160)  NOT NULL COMMENT '控制器方法',
+  `ip`           varchar(64)   NOT NULL DEFAULT '' COMMENT '操作IP',
+  `params`       varchar(1000) NOT NULL DEFAULT '' COMMENT '脱敏请求参数',
+  `result_code`  int(10)       NOT NULL DEFAULT 0 COMMENT '返回状态码',
+  `created_time` bigint(20)    NOT NULL COMMENT '操作时间戳(ms)',
+  PRIMARY KEY (`id`),
+  KEY `idx_audit_time` (`created_time`),
+  KEY `idx_audit_user` (`user_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='操作审计日志';

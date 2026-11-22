@@ -395,6 +395,40 @@ public class InboundController extends BaseController {
         return inboundService.saveUserNodeNames(userId, list);
     }
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.admin.common.utils.SubAccessStore subAccessStore;
+
+    /**
+     * 查询某用户的订阅拉取记录（支持超管看全量，或节点管理员查看其管辖节点的记录）
+     */
+    @RequireRole(allowNodeAdmin = true)
+    @PostMapping("/sub-logs")
+    public R subLogs(@RequestBody Map<String, Object> body) {
+        Long userId;
+        Long nodeId;
+        try {
+            userId = asLong(body.get("userId"));
+            nodeId = asLong(body.get("nodeId"));
+        } catch (NumberFormatException e) {
+            return R.err("参数格式不正确");
+        }
+        if (userId == null) {
+            return R.err("缺少 userId");
+        }
+        if (subAccessStore == null) {
+            return R.err("订阅记录服务未初始化");
+        }
+        if (!com.admin.common.utils.NodePermissionHelper.isSuperAdmin()) {
+            if (nodeId == null || !canManageNode(nodeId)) {
+                return R.err(403, "无权查看该节点的订阅拉取记录");
+            }
+            if (!subAccessStore.userHasNode(userId, nodeId)) {
+                return R.err(403, "该用户未分配到此节点");
+            }
+        }
+        return R.ok(subAccessStore.queryByUser(userId, nodeId));
+    }
+
     /** null / 空串都当没传。直连线路的 landingId 本来就是空的,不能当成参数错误。 */
     private static Long asLong(Object v) {
         if (v == null) {

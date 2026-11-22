@@ -161,4 +161,17 @@ export const updateConfig = (name: string, value: string) => Network.post("/conf
 // 验证码相关接口
 export const checkCaptcha = () => Network.post("/captcha/check");
 export const generateCaptcha = () => Network.post(`/captcha/generate`);
-export const verifyCaptcha = (data: { captchaId: string; trackData: string }) => Network.post("/captcha/verify", data); 
+export const verifyCaptcha = (data: { captchaId: string; trackData: string }) => Network.post("/captcha/verify", data);
+
+// 运维告警测试
+export const testAlertNotify = (params?: { tg_bot_token?: string; tg_chat_id?: string; webhook_url?: string }) =>
+  Network.post("/config/test-alert", params || {});
+
+// 订阅拉取记录（防泄露审计）
+export const getSubAccessLogs = (userId: number, nodeId?: number | null) =>
+  Network.post("/inbound/sub-logs", { userId, nodeId: nodeId ?? null });
+
+// 操作审计日志
+export const getAuditLogs = (params: { page?: number; size?: number; keyword?: string; userId?: number | null }) =>
+  Network.post("/user/audit-logs", params);
+export const clearAuditLogs = () => Network.post("/user/audit-logs-clear", {});

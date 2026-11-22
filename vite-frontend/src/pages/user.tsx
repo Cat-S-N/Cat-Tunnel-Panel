@@ -28,6 +28,7 @@ import { Progress } from "@heroui/progress";
 import toast from 'react-hot-toast';
 import { QuanxPermission, QuanxSubscription } from '@/components/quanx-subscription';
 import { SocksNodesSection, SocksNodeItem } from '@/components/socks-nodes-card';
+import { SubAccessLogsPanel } from '@/components/sub-access-logs-panel';
 import { 
   User, 
   UserForm, 
@@ -1885,6 +1886,7 @@ export default function UserPage() {
                 }
               }}
             />
+            {subUserId != null && <SubAccessLogsPanel userId={subUserId} />}
           </ModalBody>
           <ModalFooter>
             <Button variant="light" onPress={onSubModalClose}>关闭</Button>

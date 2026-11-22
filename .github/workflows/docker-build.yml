@@ -23,7 +23,7 @@ jobs:
       should_build_gost: ${{ steps.check-tag.outputs.should_build_gost }}
       tag_exists: ${{ steps.check-tag.outputs.tag_exists }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
@@ -69,7 +69,7 @@ jobs:
     if: needs.check-version.outputs.should_build_gost == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v4
@@ -77,7 +77,7 @@ jobs:
           go-version: '1.21'
 
       - name: Cache Go modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cache/go-build
@@ -134,7 +134,7 @@ jobs:
     # 版本 tag / release 仍然只在 VERSION 变化时创建(见 create-release)。
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -142,7 +142,7 @@ jobs:
           node-version: 20
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -172,16 +172,16 @@ jobs:
     # 同上:每次推 main 都重建,保证 :latest 是最新代码
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Set up JDK and Maven
-        uses: actions/setup-java@v3
+        uses: actions/setup-java@v4
         with:
           java-version: 21
           distribution: 'temurin'
 
       - name: Cache Maven dependencies
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ~/.m2
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
@@ -189,10 +189,17 @@ jobs:
 
       - name: Build Java JAR
         working-directory: ./springboot-backend
-        run: mvn clean package -DskipTests
+        env:
+          LOG_DIR: /tmp
+          JWT_SECRET: ci-test-jwt-secret-key-at-least-32-chars
+          DB_HOST: 127.0.0.1
+          DB_NAME: test
+          DB_USER: test
+          DB_PASSWORD: test
+        run: mvn clean package
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -226,7 +233,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Download GOST AMD64 binary
         uses: actions/download-artifact@v4
@@ -296,7 +303,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Download GOST AMD64 binary
         uses: actions/download-artifact@v4
@@ -337,7 +344,7 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Update Release Files
         env:

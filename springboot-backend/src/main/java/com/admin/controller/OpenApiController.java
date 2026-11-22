@@ -25,18 +25,29 @@ public class OpenApiController extends BaseController {
     @Autowired
     private InboundService inboundService;
 
+    @Autowired(required = false)
+    private com.admin.common.utils.SubAccessStore subAccessStore;
+
     /** Quantumult X 订阅源（由 OpenResty quanx.lua 鉴权后拉取转换） */
     @GetMapping(value = "/quanx-source", produces = "text/plain; charset=utf-8")
-    public ResponseEntity<String> quantumultXSource(@RequestParam("token") String token) {
+    public ResponseEntity<String> quantumultXSource(@RequestParam("token") String token,
+                                                    javax.servlet.http.HttpServletRequest request) {
         if (!inboundService.quantumultXAllowed(token)) {
             return ResponseEntity.status(403).header("Cache-Control", "no-store").body("");
+        }
+        if (subAccessStore != null) {
+            subAccessStore.record(token, "quanx", request);
         }
         return ResponseEntity.ok().header("Cache-Control", "no-store").body(inboundService.buildSubscription(token));
     }
 
     /** 订阅:按 token 返回该用户所有协议链接的 base64(客户端订阅用,免登录) */
     @GetMapping("/sub")
-    public String sub(@RequestParam("token") String token) {
+    public String sub(@RequestParam("token") String token,
+                      javax.servlet.http.HttpServletRequest request) {
+        if (subAccessStore != null) {
+            subAccessStore.record(token, "sub", request);
+        }
         return inboundService.buildSubscription(token);
     }
 
@@ -46,7 +57,11 @@ public class OpenApiController extends BaseController {
      * 3x-ui 和 s-ui 也都是独立路径。
      */
     @GetMapping(value = "/clash", produces = "text/yaml; charset=utf-8")
-    public String clash(@RequestParam("token") String token) {
+    public String clash(@RequestParam("token") String token,
+                        javax.servlet.http.HttpServletRequest request) {
+        if (subAccessStore != null) {
+            subAccessStore.record(token, "clash", request);
+        }
         return inboundService.buildClashSubscription(token);
     }
 

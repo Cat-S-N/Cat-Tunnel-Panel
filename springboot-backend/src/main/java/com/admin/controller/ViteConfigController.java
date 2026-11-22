@@ -79,6 +79,9 @@ public class ViteConfigController extends BaseController {
         return viteConfigService.updateConfigs(configMap);
     }
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.admin.common.utils.AlertNotifier alertNotifier;
+
     /**
      * 更新单个配置项
      * 需要管理员权限
@@ -90,6 +93,20 @@ public class ViteConfigController extends BaseController {
         String name = params.get("name").toString();
         String value = params.get("value").toString();
         return viteConfigService.updateConfig(name, value);
+    }
+
+    /**
+     * 发送测试告警（验证 Telegram / Webhook 配置是否可用）
+     * 需要超级管理员权限
+     */
+    @LogAnnotation
+    @RequireRole
+    @PostMapping("/test-alert")
+    public R testAlert(@RequestBody(required = false) Map<String, String> params) {
+        if (alertNotifier == null) {
+            return R.err("告警通知组件未初始化");
+        }
+        return alertNotifier.sendTestAlert(params);
     }
 
 }

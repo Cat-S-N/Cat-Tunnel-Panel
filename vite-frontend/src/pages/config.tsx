@@ -8,7 +8,7 @@ import { Divider } from "@heroui/divider";
 import { Switch } from "@heroui/switch";
 import { Select, SelectItem } from "@heroui/select";
 import toast from 'react-hot-toast';
-import { updateConfigs } from '@/api';
+import { updateConfigs, testAlertNotify } from '@/api';
 import { SettingsIcon } from '@/components/icons';
 
 import { isAdmin } from '@/utils/auth';
@@ -110,6 +110,39 @@ const CONFIG_ITEMS: ConfigItem[] = [
         description: '拖动滑块完成图片拼接' 
       }
     ]
+  },
+  {
+    key: 'alert_enabled',
+    label: '实时运维告警（节点离线 / 线路停用）',
+    description: '开启后，当节点离线或恢复、用户线路因到期或超额自动停用时，立即推送通知',
+    type: 'switch'
+  },
+  {
+    key: 'tg_bot_token',
+    label: 'Telegram Bot Token',
+    placeholder: '例如 123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11',
+    description: '从 @BotFather 获取的机器人 Token；需配合下方 Chat ID 使用',
+    type: 'input',
+    dependsOn: 'alert_enabled',
+    dependsValue: 'true'
+  },
+  {
+    key: 'tg_chat_id',
+    label: 'Telegram Chat ID',
+    placeholder: '例如 1001234567 或 -1001234567890',
+    description: '接收告警消息的用户或群组 ID（可通过 @userinfobot 获取）',
+    type: 'input',
+    dependsOn: 'alert_enabled',
+    dependsValue: 'true'
+  },
+  {
+    key: 'webhook_url',
+    label: '自定义 Webhook 地址',
+    placeholder: 'https://open.feishu.cn/open-apis/bot/v2/hook/...',
+    description: '可选。支持飞书、钉钉、企业微信机器人以及通用 JSON POST Webhook',
+    type: 'input',
+    dependsOn: 'alert_enabled',
+    dependsValue: 'true'
   }
 ];
 
@@ -117,7 +150,7 @@ const CONFIG_ITEMS: ConfigItem[] = [
 const getInitialConfigs = (): Record<string, string> => {
   if (typeof window === 'undefined') return {};
   
-  const configKeys = ['app_name', 'captcha_enabled', 'captcha_type', 'ip', 'sub_url'];
+  const configKeys = ['app_name', 'captcha_enabled', 'captcha_type', 'ip', 'sub_url', 'alert_enabled', 'tg_bot_token', 'tg_chat_id', 'webhook_url'];
   const initialConfigs: Record<string, string> = {};
   
   try {
@@ -139,6 +172,7 @@ export default function ConfigPage() {
   const [configs, setConfigs] = useState<Record<string, string>>(initialConfigs);
   const [loading, setLoading] = useState(Object.keys(initialConfigs).length === 0); // 如果有缓存数据，不显示loading
   const [saving, setSaving] = useState(false);
+  const [testingAlert, setTestingAlert] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [originalConfigs, setOriginalConfigs] = useState<Record<string, string>>(initialConfigs);
 
@@ -254,6 +288,27 @@ export default function ConfigPage() {
       toast.error('保存配置出错，请重试');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // 测试告警推送
+  const handleTestAlert = async () => {
+    setTestingAlert(true);
+    try {
+      const response = await testAlertNotify({
+        tg_bot_token: configs.tg_bot_token || '',
+        tg_chat_id: configs.tg_chat_id || '',
+        webhook_url: configs.webhook_url || '',
+      });
+      if (response.code === 0) {
+        toast.success(typeof response.data === 'string' ? response.data : '测试告警发送成功');
+      } else {
+        toast.error(response.msg || '测试告警发送失败');
+      }
+    } catch {
+      toast.error('测试告警请求出错，请检查网络或配置');
+    } finally {
+      setTestingAlert(false);
     }
   };
 
@@ -375,7 +430,14 @@ export default function ConfigPage() {
                 </p>
               </div>
               <div className="flex gap-2">
-
+                <Button
+                  variant="flat"
+                  color="secondary"
+                  onPress={handleTestAlert}
+                  isLoading={testingAlert}
+                >
+                  {testingAlert ? '发送中...' : '🔔 测试告警'}
+                </Button>
                 <Button
                   color="primary"
                   startContent={<SaveIcon className="w-4 h-4" />}

@@ -16,6 +16,7 @@ const LandingPage = lazy(() => import("@/pages/landing"));
 const GuidePage = lazy(() => import("@/pages/guide"));
 const MySubPage = lazy(() => import("@/pages/my-sub"));
 const ConfigPage = lazy(() => import("@/pages/config"));
+const AuditPage = lazy(() => import("@/pages/audit"));
 const MonitorPage = lazy(() => import("@/pages/monitor"));
 const StatusPage = lazy(() => import("@/pages/status"));
 const SettingsPage = lazy(() => import("@/pages/settings").then((m) => ({ default: m.SettingsPage })));
@@ -272,6 +273,14 @@ function App() {
             <ConfigPage />
           </ProtectedRoute>
         } 
+      />
+      <Route
+        path="/audit"
+        element={
+          <ProtectedRoute useSimpleLayout={true}>
+            <AuditPage />
+          </ProtectedRoute>
+        }
       />
       <Route 
         path="/settings" 
