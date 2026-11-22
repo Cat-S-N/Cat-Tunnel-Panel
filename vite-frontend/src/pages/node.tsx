@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Input } from "@heroui/input";
@@ -89,6 +89,41 @@ interface NodeForm {
 
 export default function NodePage() {
   const [nodeList, setNodeList] = useState<Node[]>([]);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline'>('all');
+  const [searchKeyword, setSearchKeyword] = useState('');
+
+  const nodeStats = useMemo(() => {
+    let online = 0;
+    let offline = 0;
+    const versions = new Set<string>();
+    for (const node of nodeList) {
+      if (node.connectionStatus === 'online') {
+        online += 1;
+      } else {
+        offline += 1;
+      }
+      if (node.version && node.version.trim()) {
+        versions.add(node.version.trim());
+      }
+    }
+    return {
+      total: nodeList.length,
+      online,
+      offline,
+      versionCount: versions.size,
+    };
+  }, [nodeList]);
+
+  const filteredNodes = useMemo(() => {
+    const kw = searchKeyword.trim().toLowerCase();
+    return nodeList.filter((node) => {
+      if (statusFilter === 'online' && node.connectionStatus !== 'online') return false;
+      if (statusFilter === 'offline' && node.connectionStatus === 'online') return false;
+      if (!kw) return true;
+      const fields = [node.name, node.ip, node.serverIp, node.domain];
+      return fields.some((f) => f && f.toLowerCase().includes(kw));
+    });
+  }, [nodeList, statusFilter, searchKeyword]);
   // 建了协议的机器 id。没协议时 sing-box 本来就是停着的(agent 只预装、不启动,
   // 删光协议也会停掉它),不能报「未运行」。null = 没拿到协议列表,按老样子照报,免得藏住真故障
   const [monitorNode, setMonitorNode] = useState<any | null>(null);
@@ -757,20 +792,70 @@ export default function NodePage() {
     
       <div className="px-3 lg:px-6 py-8">
         {/* 页面头部 */}
-        <div className="flex items-center justify-between mb-6">
-        <div className="flex-1">
-        </div>
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-6">
+          <div className="flex flex-wrap items-center gap-2">
+            <Chip size="sm" variant="flat" color="default">
+              总节点：{nodeStats.total}
+            </Chip>
+            <Chip size="sm" variant="flat" color="success">
+              在线：{nodeStats.online}
+            </Chip>
+            <Chip size="sm" variant="flat" color={nodeStats.offline > 0 ? "danger" : "default"}>
+              离线：{nodeStats.offline}
+            </Chip>
+            {nodeStats.versionCount > 0 && (
+              <Chip size="sm" variant="flat" color="primary">
+                版本分布：{nodeStats.versionCount} 个版本
+              </Chip>
+            )}
+          </div>
 
-        <Button
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1">
+              {(
+                [
+                  { key: 'all', label: '全部' },
+                  { key: 'online', label: '在线' },
+                  { key: 'offline', label: '离线' },
+                ] as const
+              ).map((item) => (
+                <Button
+                  key={item.key}
+                  size="sm"
+                  variant={statusFilter === item.key ? 'solid' : 'flat'}
+                  color={
+                    statusFilter === item.key
+                      ? item.key === 'online'
+                        ? 'success'
+                        : item.key === 'offline'
+                        ? 'danger'
+                        : 'primary'
+                      : 'default'
+                  }
+                  onPress={() => setStatusFilter(item.key)}
+                >
+                  {item.label}
+                </Button>
+              ))}
+            </div>
+            <Input
+              size="sm"
+              className="w-56"
+              placeholder="搜索名称 / IP / 域名"
+              isClearable
+              value={searchKeyword}
+              onValueChange={setSearchKeyword}
+              onClear={() => setSearchKeyword('')}
+            />
+            <Button
               size="sm"
               variant="flat"
               color="primary"
               onPress={handleAdd}
-             
             >
               新增
             </Button>
-     
+          </div>
         </div>
 
         {/* 转发机列表 */}
@@ -797,9 +882,29 @@ export default function NodePage() {
               </div>
             </CardBody>
           </Card>
+        ) : filteredNodes.length === 0 ? (
+          <Card className="shadow-sm border border-gray-200 dark:border-gray-700">
+            <CardBody className="text-center py-14">
+              <div className="flex flex-col items-center gap-3">
+                <h3 className="text-base font-semibold text-foreground">无匹配节点</h3>
+                <p className="text-default-500 text-sm">当前筛选或搜索条件下没有匹配的节点</p>
+                <Button
+                  size="sm"
+                  color="primary"
+                  variant="flat"
+                  onPress={() => {
+                    setStatusFilter('all');
+                    setSearchKeyword('');
+                  }}
+                >
+                  重置筛选
+                </Button>
+              </div>
+            </CardBody>
+          </Card>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-            {nodeList.map((node) => (
+            {filteredNodes.map((node) => (
               <Card 
                 key={node.id} 
                 className="shadow-sm border border-divider hover:shadow-md transition-shadow duration-200"
