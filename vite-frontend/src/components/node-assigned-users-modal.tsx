@@ -286,7 +286,7 @@ export function NodeAssignedUsersModal({
                       }}
                     />
                   )}
-                  <SubAccessLogsPanel userId={ln.userId} nodeId={ln.nodeId} compact />
+                  <SubAccessLogsPanel key={`${ln.userId}-${ln.nodeId}`} userId={ln.userId} nodeId={ln.nodeId} compact />
                 </div>
               );
             })

@@ -25,7 +25,7 @@ public final class LogRedact {
      * link:落地 / 客户端链接整段就是凭据,格式五花八门(标准 base64 的 ss、住宅 socks 裸格式 user:pw@ip:port …),整段遮
      */
     private static final String KEYWORD =
-            "(?:secret|passw(?:or)?d|pwd|token|private[_-]?key|psk|api[_-]?key|uuid|link)";
+            "(?:secret|passw(?:or)?d|pwd|token|private[_-]?key|psk|api[_-]?key|uuid|link|webhook)";
     /** 键名:前面最多 40 个字母 / 下划线 / 连字符,后面还允许数字(password2、token_v2),限长防回溯 */
     private static final String KEY = "[A-Za-z_-]{0,40}?" + KEYWORD + "[A-Za-z0-9_-]{0,40}";
 

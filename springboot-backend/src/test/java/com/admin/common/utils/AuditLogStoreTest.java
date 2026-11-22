@@ -36,4 +36,11 @@ class AuditLogStoreTest {
         assertTrue(cut.endsWith("..."));
         assertEquals(953, cut.length());
     }
+
+    @Test
+    void extractsLoginUsernameFromParams() {
+        assertEquals("admin", AuditLogStore.extractLoginUsername("{\"username\":\"admin\",\"password\":\"***\"}"));
+        assertEquals("cat", AuditLogStore.extractLoginUsername("{\"user\":\"cat\",\"pwd\":\"***\"}"));
+        assertNull(AuditLogStore.extractLoginUsername("{\"password\":\"***\"}"));
+    }
 }

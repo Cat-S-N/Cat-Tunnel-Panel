@@ -270,7 +270,7 @@ function App() {
         path="/config" 
         element={
           <ProtectedRoute useSimpleLayout={true}>
-            <ConfigPage />
+            {isAdmin() ? <ConfigPage /> : <Navigate to="/my-sub" replace />}
           </ProtectedRoute>
         } 
       />
@@ -278,7 +278,7 @@ function App() {
         path="/audit"
         element={
           <ProtectedRoute useSimpleLayout={true}>
-            <AuditPage />
+            {isAdmin() ? <AuditPage /> : <Navigate to="/my-sub" replace />}
           </ProtectedRoute>
         }
       />

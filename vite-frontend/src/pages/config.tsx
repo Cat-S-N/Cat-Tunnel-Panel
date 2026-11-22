@@ -40,6 +40,7 @@ interface ConfigItem {
   options?: { label: string; value: string; description?: string }[];
   dependsOn?: string; // 依赖的配置项key
   dependsValue?: string; // 依赖的配置项值
+  sensitive?: boolean; // 敏感配置项（默认掩码显示，可点击切换明文）
 }
 
 // 网站配置项定义
@@ -123,6 +124,7 @@ const CONFIG_ITEMS: ConfigItem[] = [
     placeholder: '例如 123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11',
     description: '从 @BotFather 获取的机器人 Token；需配合下方 Chat ID 使用',
     type: 'input',
+    sensitive: true,
     dependsOn: 'alert_enabled',
     dependsValue: 'true'
   },
@@ -141,6 +143,7 @@ const CONFIG_ITEMS: ConfigItem[] = [
     placeholder: 'https://open.feishu.cn/open-apis/bot/v2/hook/...',
     description: '可选。支持飞书、钉钉、企业微信机器人以及通用 JSON POST Webhook',
     type: 'input',
+    sensitive: true,
     dependsOn: 'alert_enabled',
     dependsValue: 'true'
   }
@@ -173,6 +176,7 @@ export default function ConfigPage() {
   const [loading, setLoading] = useState(Object.keys(initialConfigs).length === 0); // 如果有缓存数据，不显示loading
   const [saving, setSaving] = useState(false);
   const [testingAlert, setTestingAlert] = useState(false);
+  const [revealedKeys, setRevealedKeys] = useState<Record<string, boolean>>({});
   const [hasChanges, setHasChanges] = useState(false);
   const [originalConfigs, setOriginalConfigs] = useState<Record<string, string>>(initialConfigs);
 
@@ -330,11 +334,25 @@ export default function ConfigPage() {
       case 'input':
         return (
           <Input
+            type={item.sensitive && !revealedKeys[item.key] ? 'password' : 'text'}
             value={configs[item.key] || ''}
             onChange={(e) => handleConfigChange(item.key, e.target.value)}
             placeholder={item.placeholder}
             variant="bordered"
             size="md"
+            endContent={
+              item.sensitive ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setRevealedKeys((prev) => ({ ...prev, [item.key]: !prev[item.key] }))
+                  }
+                  className="text-xs text-default-500 hover:text-primary px-1 shrink-0"
+                >
+                  {revealedKeys[item.key] ? '隐藏' : '显示'}
+                </button>
+              ) : undefined
+            }
             classNames={{
               input: "text-sm",
               inputWrapper: isChanged 

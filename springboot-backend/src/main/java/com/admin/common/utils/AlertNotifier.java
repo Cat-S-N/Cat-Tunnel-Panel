@@ -41,6 +41,8 @@ public class AlertNotifier {
 
     private final ConcurrentHashMap<Long, Integer> lastNodeStatus = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<Long, Long> nodeOfflineSince = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<Long, Integer> nodeOfflineStrikes = new ConcurrentHashMap<>();
+    private final java.util.Set<Long> nodeOfflineAlerted = ConcurrentHashMap.newKeySet();
     private final ConcurrentHashMap<Long, Integer> lastLineStatus = new ConcurrentHashMap<>();
     private volatile boolean initialized = false;
 
@@ -67,12 +69,14 @@ public class AlertNotifier {
             String appName = cfg.getOrDefault("app_name", "Cat Tunnel Panel");
             long now = System.currentTimeMillis();
 
-            // 1) 节点在线/离线状态检查
+            // 1) 节点在线/离线状态检查（连续 2 次离线确认防抖，避免瞬断刷屏）
             List<Map<String, Object>> nodes = jdbc.queryForList(
                     "SELECT id, name, server_ip, ip, status FROM node WHERE status IS NOT NULL");
+            java.util.Set<Long> seenNodeIds = new java.util.HashSet<>();
             for (Map<String, Object> row : nodes) {
                 Long id = toLong(row.get("id"));
                 if (id == null) continue;
+                seenNodeIds.add(id);
                 int cur = toInt(row.get("status"), 0);
                 Integer prev = lastNodeStatus.put(id, cur);
                 if (!initialized) {
@@ -82,7 +86,6 @@ public class AlertNotifier {
                     continue;
                 }
                 if (prev == null) {
-                    // 运行期新接入节点仅记录初态，或若上线则记录时间
                     if (cur == 0) {
                         nodeOfflineSince.put(id, now);
                     }
@@ -90,18 +93,24 @@ public class AlertNotifier {
                 }
                 String name = str(row.get("name"), "节点#" + id);
                 String addr = firstNonEmpty(str(row.get("server_ip"), ""), str(row.get("ip"), ""));
-                if (prev == 1 && cur == 0) {
-                    nodeOfflineSince.put(id, now);
-                    if (alertOn) {
-                        notifyAsync(cfg,
-                                "[" + appName + "] 🔴 节点离线告警",
-                                String.format("节点：%s\n地址：%s\n时间：%s\n状态：已从在线变为离线，请检查机器网络或 gost 服务。",
-                                        name, addr.isEmpty() ? "-" : addr, formatTime(now)));
+                if (cur == 0) {
+                    if (prev == 1) {
+                        nodeOfflineSince.put(id, now);
+                        nodeOfflineStrikes.put(id, 1);
+                    } else if (nodeOfflineStrikes.containsKey(id)) {
+                        int strikes = nodeOfflineStrikes.merge(id, 1, Integer::sum);
+                        if (strikes >= 2 && nodeOfflineAlerted.add(id) && alertOn) {
+                            notifyAsync(cfg,
+                                    "[" + appName + "] 🔴 节点离线告警",
+                                    String.format("节点：%s\n地址：%s\n时间：%s\n状态：已连续确认离线，请检查机器网络或 gost 服务。",
+                                            name, addr.isEmpty() ? "-" : addr, formatTime(now)));
+                        }
                     }
-                } else if (prev == 0 && cur == 1) {
+                } else if (cur == 1) {
+                    nodeOfflineStrikes.remove(id);
                     Long downAt = nodeOfflineSince.remove(id);
-                    String dur = downAt != null ? formatDuration(now - downAt) : "未知";
-                    if (alertOn) {
+                    if (nodeOfflineAlerted.remove(id) && alertOn) {
+                        String dur = downAt != null ? formatDuration(now - downAt) : "未知";
                         notifyAsync(cfg,
                                 "[" + appName + "] 🟢 节点恢复上线",
                                 String.format("节点：%s\n地址：%s\n时间：%s\n离线时长：%s",
@@ -109,6 +118,10 @@ public class AlertNotifier {
                     }
                 }
             }
+            lastNodeStatus.keySet().retainAll(seenNodeIds);
+            nodeOfflineSince.keySet().retainAll(seenNodeIds);
+            nodeOfflineStrikes.keySet().retainAll(seenNodeIds);
+            nodeOfflineAlerted.retainAll(seenNodeIds);
 
             // 2) 线路 status 1 -> 0（超额/到期停用）检查
             List<Map<String, Object>> lines = jdbc.queryForList(
@@ -117,9 +130,11 @@ public class AlertNotifier {
                             + "FROM inbound_line l "
                             + "LEFT JOIN user u ON u.id = l.user_id "
                             + "LEFT JOIN node n ON n.id = l.node_id");
+            java.util.Set<Long> seenLineIds = new java.util.HashSet<>();
             for (Map<String, Object> row : lines) {
                 Long id = toLong(row.get("id"));
                 if (id == null) continue;
+                seenLineIds.add(id);
                 int cur = toInt(row.get("status"), 1);
                 Integer prev = lastLineStatus.put(id, cur);
                 if (!initialized || prev == null) {
@@ -139,6 +154,7 @@ public class AlertNotifier {
                                     username, nodeName, reason, formatTime(now)));
                 }
             }
+            lastLineStatus.keySet().retainAll(seenLineIds);
 
             initialized = true;
         } catch (Exception e) {
@@ -181,7 +197,9 @@ public class AlertNotifier {
         if (!"true".equalsIgnoreCase(cfg.get("alert_enabled")) || !hasAnyTarget(cfg)) {
             return;
         }
-        notifyAsync(cfg, title, content);
+        String appName = cfg.getOrDefault("app_name", "Cat Tunnel Panel");
+        String fullTitle = title != null && title.startsWith("[") ? title : "[" + appName + "] " + title;
+        notifyAsync(cfg, fullTitle, content);
     }
 
     private void notifyAsync(Map<String, String> cfg, String title, String content) {

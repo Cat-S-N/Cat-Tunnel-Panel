@@ -65,8 +65,8 @@ class LogRedactTest {
 
     @Test
     void underscoreKeysMasked() {
-        String out = LogRedact.redact("{\"tg_token\":\"T1\",\"private_key\":\"K1\",\"sub_token\":\"S1\"}");
-        for (String s : new String[]{"T1", "K1", "S1"}) assertFalse(out.contains(s), out);
+        String out = LogRedact.redact("{\"tg_token\":\"T1\",\"private_key\":\"K1\",\"sub_token\":\"S1\",\"webhook_url\":\"https://open.feishu.cn/hook/W1\"}");
+        for (String s : new String[]{"T1", "K1", "S1", "open.feishu.cn/hook/W1"}) assertFalse(out.contains(s), out);
     }
 
     @Test

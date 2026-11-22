@@ -36,6 +36,9 @@ public class AuditLogStore {
     private static final Pattern EXTRA_SECRET_PATTERN = Pattern.compile(
             "(?i)\"(tg_bot_token|webhook_url|token|secret|pwd|password|newPassword|currentPassword)\"\\s*:\\s*\"[^\"]*\"");
 
+    private static final Pattern LOGIN_USER_PATTERN = Pattern.compile(
+            "(?i)\"(?:username|user)\"\\s*:\\s*\"([^\"\\\\]{1,64})\"");
+
     static final Map<String, String> ACTION_MAP;
     static {
         Map<String, String> m = new HashMap<>();
@@ -188,6 +191,15 @@ public class AuditLogStore {
         return masked.length() <= 950 ? masked : masked.substring(0, 950) + "...";
     }
 
+    /** 登录请求尚未携带 JWT，从脱敏请求参数中提取登录账号名便于审计 */
+    public static String extractLoginUsername(String requestParams) {
+        if (requestParams == null || requestParams.isEmpty()) {
+            return null;
+        }
+        java.util.regex.Matcher m = LOGIN_USER_PATTERN.matcher(requestParams);
+        return m.find() ? m.group(1).trim() : null;
+    }
+
     public void recordIfAuditable(String authorization, String ip, String controllerMethod, String requestParams, Object returnValue) {
         if (jdbc == null) {
             return;
@@ -228,6 +240,12 @@ public class AuditLogStore {
         }
 
         String shortMethod = extractShortMethod(controllerMethod);
+        if ("匿名".equals(username) && "UserController.login".equals(shortMethod)) {
+            String loginUser = extractLoginUsername(requestParams);
+            if (loginUser != null && !loginUser.isEmpty()) {
+                username = loginUser;
+            }
+        }
         String cleanIp = SubAccessStore.firstHeaderIp(ip);
         if (cleanIp.isEmpty()) cleanIp = SubAccessStore.safeTruncate(ip, 64);
         String safeParams = maskSensitiveParams(requestParams);

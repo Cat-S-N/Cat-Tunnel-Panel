@@ -30,6 +30,7 @@ public class SubAccessStore {
     private static final long RETENTION_MS = 30L * 24 * 3600 * 1000;
     private static final long DAY_MS = 24L * 3600 * 1000;
     private static final long RETRY_INTERVAL_MS = 30_000L;
+    private static final int LEAK_ALERT_IP_THRESHOLD = 4;
 
     private static final String DDL = "CREATE TABLE IF NOT EXISTS `sub_access_log` ("
             + "`id` BIGINT NOT NULL AUTO_INCREMENT,"
@@ -47,9 +48,13 @@ public class SubAccessStore {
     @Autowired(required = false)
     private JdbcTemplate jdbc;
 
+    @Autowired(required = false)
+    private AlertNotifier alertNotifier;
+
     private volatile boolean available = false;
     private volatile long lastTry = 0L;
     private final AtomicInteger insertCounter = new AtomicInteger(0);
+    private final java.util.concurrent.ConcurrentHashMap<Long, Long> leakAlertSentAt = new java.util.concurrent.ConcurrentHashMap<>();
 
     private final ExecutorService executor = new ThreadPoolExecutor(
             1, 1, 60L, TimeUnit.SECONDS,
@@ -117,6 +122,7 @@ public class SubAccessStore {
             }
             jdbc.update("INSERT INTO `sub_access_log` (`user_id`, `node_id`, `sub_type`, `ip`, `user_agent`, `created_time`) VALUES (?, ?, ?, ?, ?, ?)",
                     target[0], target[1], type, ip, ua, now);
+            checkLeakAlert(target[0], ip, ua, now);
             if (insertCounter.incrementAndGet() % 200 == 0) {
                 jdbc.update("DELETE FROM `sub_access_log` WHERE `created_time` < ?", now - RETENTION_MS);
             }
@@ -125,6 +131,38 @@ public class SubAccessStore {
                 available = false;
             }
             log.debug("记录订阅访问失败: {}", e.getMessage());
+        }
+    }
+
+    /** 24 小时内单用户独立 IP 达到阈值时主动推送泄露预警（每用户 24 小时冷却 1 次） */
+    private void checkLeakAlert(long userId, String latestIp, String latestUa, long now) {
+        if (alertNotifier == null) {
+            return;
+        }
+        Long lastSent = leakAlertSentAt.get(userId);
+        if (lastSent != null && now - lastSent < DAY_MS) {
+            return;
+        }
+        try {
+            Long uniqueIps = jdbc.queryForObject(
+                    "SELECT COUNT(DISTINCT `ip`) FROM `sub_access_log` WHERE `user_id` = ? AND `created_time` >= ?",
+                    Long.class, userId, now - DAY_MS);
+            if (uniqueIps != null && uniqueIps >= LEAK_ALERT_IP_THRESHOLD) {
+                leakAlertSentAt.put(userId, now);
+                if (leakAlertSentAt.size() > 1000) {
+                    leakAlertSentAt.entrySet().removeIf(e -> now - e.getValue() >= DAY_MS);
+                }
+                List<String> names = jdbc.queryForList(
+                        "SELECT `user` FROM `user` WHERE `id` = ? LIMIT 1", String.class, userId);
+                String uname = (!names.isEmpty() && names.get(0) != null) ? names.get(0) : ("用户#" + userId);
+                alertNotifier.notifyAsync(
+                        "🚨 订阅疑似泄露预警",
+                        String.format("用户：%s\n24h 独立拉取 IP 数：%d 个（阈值 %d）\n最新来源 IP：%s\n客户端：%s\n建议：请前往用户管理检查拉取记录，必要时重置其订阅链接。",
+                                uname, uniqueIps, LEAK_ALERT_IP_THRESHOLD, latestIp,
+                                latestUa.isEmpty() ? "未知" : latestUa));
+            }
+        } catch (Exception e) {
+            log.debug("检查订阅泄露告警失败: {}", e.getMessage());
         }
     }
 

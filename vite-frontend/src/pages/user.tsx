@@ -1886,7 +1886,7 @@ export default function UserPage() {
                 }
               }}
             />
-            {subUserId != null && <SubAccessLogsPanel userId={subUserId} />}
+            {subUserId != null && <SubAccessLogsPanel key={subUserId} userId={subUserId} />}
           </ModalBody>
           <ModalFooter>
             <Button variant="light" onPress={onSubModalClose}>关闭</Button>

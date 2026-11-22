@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@heroui/button";
 import { Chip } from "@heroui/chip";
 import { Spinner } from "@heroui/spinner";
@@ -47,6 +47,13 @@ export function SubAccessLogsPanel({
   const [pulls24h, setPulls24h] = useState(0);
   const [uniqueIps24h, setUniqueIps24h] = useState(0);
   const [logs, setLogs] = useState<SubAccessLogRow[]>([]);
+
+  useEffect(() => {
+    setOpen(false);
+    setPulls24h(0);
+    setUniqueIps24h(0);
+    setLogs([]);
+  }, [userId, nodeId]);
 
   const fetchLogs = async () => {
     setLoading(true);
