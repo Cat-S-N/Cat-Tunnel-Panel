@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.io.BufferedReader;
@@ -42,7 +43,7 @@ public class VersionController extends BaseController {
      * 按构建成功的 head_sha 比,提示亮起来时镜像一定已经在 GHCR 上了。
      */
     private static final String RUNS_API =
-            "https://api.github.com/repos/Cat-S-N/Cat-Tunnel-Panel/actions/runs"
+            "https://api.github.com/repos/Cat-S-N/Cat-Tunnel-Panel/actions/workflows/docker-build.yml/runs"
                     + "?branch=main&status=success&per_page=1";
 
     private static final String COMMITS_API =
@@ -57,14 +58,14 @@ public class VersionController extends BaseController {
     private static volatile boolean lastCheckFailed = false;
 
     @PostMapping("/info")
-    public R info() {
+    public R info(@RequestParam(value = "refresh", required = false) Boolean refresh) {
         String current = buildCommit();
         Map<String, Object> data = new HashMap<>();
         data.put("panelVersion", PANEL_VERSION);
         data.put("commit", current);
         data.put("buildTime", System.getenv("TMS_BUILD_TIME"));
 
-        String latest = latestCommit();
+        String latest = latestCommit(Boolean.TRUE.equals(refresh));
         data.put("latest", latest);
         data.put("checkFailed", lastCheckFailed);
 
@@ -77,8 +78,11 @@ public class VersionController extends BaseController {
     }
 
     /** 构建时注入的短 commit;本地开发没注入就是 dev */
-    private String buildCommit() {
-        String c = System.getenv("TMS_BUILD_COMMIT");
+    String buildCommit() {
+        return normalizeCommit(System.getenv("TMS_BUILD_COMMIT"));
+    }
+
+    static String normalizeCommit(String c) {
         if (c == null || c.trim().isEmpty()) {
             return "dev";
         }
@@ -87,13 +91,13 @@ public class VersionController extends BaseController {
     }
 
     /** 取最新一次构建成功的短 commit,带缓存;失败返回 null(不抛异常、不阻塞页面) */
-    private String latestCommit() {
+    private String latestCommit(boolean forceRefresh) {
         long now = System.currentTimeMillis();
-        if (cachedLatest != null && now - cachedAt < CACHE_TTL_MS) {
+        if (!forceRefresh && cachedLatest != null && now - cachedAt < CACHE_TTL_MS) {
             return cachedLatest;
         }
         // 上次失败过也要遵守缓存间隔,否则每次刷页面都去连一次连不上的 GitHub,白白卡住请求
-        if (lastCheckFailed && now - cachedAt < CACHE_TTL_MS) {
+        if (!forceRefresh && lastCheckFailed && now - cachedAt < CACHE_TTL_MS) {
             return cachedLatest;
         }
         try {
@@ -123,7 +127,7 @@ public class VersionController extends BaseController {
         }
     }
 
-    private JSONObject fetchJson(String apiUrl) throws Exception {
+    JSONObject fetchJson(String apiUrl) throws Exception {
         HttpURLConnection conn = (HttpURLConnection) new URL(apiUrl).openConnection();
         conn.setRequestMethod("GET");
         conn.setConnectTimeout(5000);

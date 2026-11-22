@@ -54,7 +54,7 @@ public class CheckGostConfigAsync {
      */
     @Async
     public void cleanNodeConfigs(String node_id, GostConfigDto gostConfig) {
-        System.out.println(JSONObject.toJSONString(gostConfig));
+        log.debug("收到节点 {} 配置上报，服务数={}", node_id, gostConfig != null && gostConfig.getServices() != null ? gostConfig.getServices().size() : 0);
         Node node = nodeService.getById(node_id);
         if (node != null) {
             cleanOrphanedServices(gostConfig, node);
