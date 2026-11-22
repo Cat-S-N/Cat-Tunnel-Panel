@@ -45,8 +45,11 @@ public class VersionController extends BaseController {
             "https://api.github.com/repos/Cat-S-N/TMS/actions/runs"
                     + "?branch=main&status=success&per_page=1";
 
-    /** GitHub 未认证接口每小时每 IP 只有 60 次,而且国内机大概率连不上,查一次缓存 6 小时 */
-    private static final long CACHE_TTL_MS = 6 * 60 * 60 * 1000L;
+    private static final String COMMITS_API =
+            "https://api.github.com/repos/Cat-S-N/TMS/commits/main";
+
+    /** GitHub 未认证接口每小时每 IP 只有 60 次,查一次缓存 1 小时 */
+    private static final long CACHE_TTL_MS = 60 * 60 * 1000L;
 
     private static volatile String cachedLatest = null;
     private static volatile long cachedAt = 0L;
@@ -94,32 +97,18 @@ public class VersionController extends BaseController {
             return cachedLatest;
         }
         try {
-            HttpURLConnection conn = (HttpURLConnection) new URL(RUNS_API).openConnection();
-            conn.setRequestMethod("GET");
-            conn.setConnectTimeout(5000);
-            conn.setReadTimeout(5000);
-            conn.setRequestProperty("Accept", "application/vnd.github+json");
-            conn.setRequestProperty("User-Agent", "TMS-Panel");
-
-            if (conn.getResponseCode() != 200) {
-                throw new RuntimeException("HTTP " + conn.getResponseCode());
-            }
-            StringBuilder sb = new StringBuilder();
-            try (BufferedReader br = new BufferedReader(
-                    new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = br.readLine()) != null) {
-                    sb.append(line);
-                }
-            }
-            JSONObject obj = JSON.parseObject(sb.toString());
+            JSONObject obj = fetchJson(RUNS_API);
             com.alibaba.fastjson.JSONArray runs = obj == null ? null : obj.getJSONArray("workflow_runs");
-            if (runs == null || runs.isEmpty()) {
-                throw new RuntimeException("没有构建成功的记录");
+            String sha = null;
+            if (runs != null && !runs.isEmpty()) {
+                sha = runs.getJSONObject(0).getString("head_sha");
             }
-            String sha = runs.getJSONObject(0).getString("head_sha");
             if (sha == null || sha.length() < 7) {
-                throw new RuntimeException("响应里没有 head_sha");
+                JSONObject commitObj = fetchJson(COMMITS_API);
+                sha = commitObj == null ? null : commitObj.getString("sha");
+            }
+            if (sha == null || sha.length() < 7) {
+                throw new RuntimeException("未获取到有效 commit sha");
             }
             cachedLatest = sha.substring(0, 7);
             cachedAt = now;
@@ -132,5 +121,26 @@ public class VersionController extends BaseController {
             lastCheckFailed = true;
             return cachedLatest;
         }
+    }
+
+    private JSONObject fetchJson(String apiUrl) throws Exception {
+        HttpURLConnection conn = (HttpURLConnection) new URL(apiUrl).openConnection();
+        conn.setRequestMethod("GET");
+        conn.setConnectTimeout(5000);
+        conn.setReadTimeout(5000);
+        conn.setRequestProperty("Accept", "application/vnd.github+json");
+        conn.setRequestProperty("User-Agent", "TMS-Panel");
+        if (conn.getResponseCode() != 200) {
+            throw new RuntimeException("HTTP " + conn.getResponseCode());
+        }
+        StringBuilder sb = new StringBuilder();
+        try (BufferedReader br = new BufferedReader(
+                new InputStreamReader(conn.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = br.readLine()) != null) {
+                sb.append(line);
+            }
+        }
+        return JSON.parseObject(sb.toString());
     }
 }

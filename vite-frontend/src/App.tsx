@@ -26,6 +26,7 @@ import H5SimpleLayout from "@/layouts/h5-simple";
 
 import { isLoggedIn, isAdmin } from "@/utils/auth";
 import { siteConfig } from "@/config/site";
+import { ErrorBoundary } from "@/components/error-boundary";
 
 // 检测是否为H5模式
 const useH5Mode = () => {
@@ -155,6 +156,7 @@ function App() {
   }, []);
 
   return (
+    <ErrorBoundary>
     <Suspense fallback={<div className="flex items-center justify-center min-h-[60vh] text-sm text-default-400">加载中...</div>}>
     <Routes>
       <Route path="/" element={<LoginRoute />} />
@@ -287,6 +289,7 @@ function App() {
       <Route path="/status" element={<StatusPage />} />
     </Routes>
     </Suspense>
+    </ErrorBoundary>
   );
 }
 

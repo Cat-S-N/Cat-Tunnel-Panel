@@ -103,6 +103,8 @@ export const resetSubToken = (data: { userId: number; nodeId?: number; landingId
   Network.post("/inbound/reset-sub-token", data);
 export const resetSocksPassword = (id: number) => Network.post("/inbound/reset-socks-password", { id });
 export const testSocksNode = (id: number) => Network.post("/inbound/test-socks", { id });
+export const getNodeUsers = (nodeId: number, landingId?: number | null) =>
+  Network.post("/inbound/node-users", { nodeId, landingId: landingId ?? null });
 // 按【线路】操作(线路 = 车友 × 机器 × 落地;landingId 传 null 表示这台机器的直连)。
 // unassignInboundUser 取消的是单个协议,一条线路有六个,挨个点太蠢。
 export const setLineStatus = (userId: number, nodeId: number, landingId: number | null, status: number) =>

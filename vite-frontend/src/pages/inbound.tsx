@@ -28,6 +28,7 @@ import { copyTextToClipboard } from "@/utils/clipboard";
 import { SNI_PRESETS, DEFAULT_SNI, cleanSni } from "@/config/sni";
 import { SubQr } from "@/components/sub-qr";
 import { SocksNodesSection, SocksNodeItem } from "@/components/socks-nodes-card";
+import { NodeAssignedUsersModal } from "@/components/node-assigned-users-modal";
 import { getSubBase } from "@/utils/sub-base";
 
 /**
@@ -58,6 +59,13 @@ export default function InboundPage() {
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignForm, setAssignForm] = useState<any>({ nodeId: null, nodeName: "", protocolCount: 0, inbounds: [], inboundIds: [], userId: null, speedId: null, expDate: null, flowGb: null });
   const [assignLoading, setAssignLoading] = useState(false);
+
+  // 查看/管理该机器已分配用户（超管和节点管理员均可用）
+  const [nodeUsersModal, setNodeUsersModal] = useState<{ open: boolean; nodeId: number | null; title: string }>({
+    open: false,
+    nodeId: null,
+    title: "",
+  });
 
   // 「我自己用」:一键开给当前管理员自己,完事直接把订阅链接弹出来
   const [selfLoading, setSelfLoading] = useState<number | null>(null);
@@ -465,9 +473,17 @@ export default function InboundPage() {
                 <div className="text-xs text-default-400">
                   整机一条订阅:分配给车友后,一条订阅链接导入客户端即拿到上面全部协议,以后加新协议自动更新。
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   <Button size="sm" color="primary" className="flex-1" onPress={() => openNodeAssign(n, nodeInbounds)}>
                     👤 分配用户
+                  </Button>
+                  <Button
+                    size="sm"
+                    color="secondary"
+                    variant="flat"
+                    onPress={() => setNodeUsersModal({ open: true, nodeId: n.id, title: n.name })}
+                  >
+                    👥 已分用户
                   </Button>
                   {/* 自己用不必先建车友再分配:一键开给当前管理员,不限速不限量不到期 */}
                   <Button
@@ -782,6 +798,13 @@ export default function InboundPage() {
           </ModalFooter>
         </ModalContent>
       </Modal>
+      <NodeAssignedUsersModal
+        isOpen={nodeUsersModal.open}
+        onClose={() => setNodeUsersModal((prev) => ({ ...prev, open: false }))}
+        nodeId={nodeUsersModal.nodeId}
+        landingId={null}
+        title={nodeUsersModal.title}
+      />
     </div>
   );
 }

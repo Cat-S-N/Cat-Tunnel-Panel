@@ -283,17 +283,32 @@ public class InboundController extends BaseController {
         return inboundService.testSocksNode(asLong(body.get("id")), uid.longValue(), isAdmin);
     }
 
+    /** 查询某节点线路（nodeId × landingId）下所有已分配的用户、订阅与 SOCKS5 信息 */
+    @RequireRole(allowNodeAdmin = true)
+    @PostMapping("/node-users")
+    public R nodeUsers(@RequestBody Map<String, Object> body) {
+        Long nodeId = asLong(body.get("nodeId"));
+        if (!canManageNode(nodeId)) {
+            return R.err(403, "无权管理该节点");
+        }
+        return inboundService.getNodeUsers(nodeId, asLong(body.get("landingId")));
+    }
+
     /**
      * 停用 / 恢复某车友的一条线路。
      * landingId 允许缺省或为 null —— 那表示这台机器的直连线路。
      */
     @LogAnnotation
-    @RequireRole
+    @RequireRole(allowNodeAdmin = true)
     @PostMapping("/line-status")
     public R lineStatus(@RequestBody Map<String, Object> body) {
+        Long nodeId = asLong(body.get("nodeId"));
+        if (!canManageNode(nodeId)) {
+            return R.err(403, "无权管理该节点");
+        }
         return inboundService.setLineStatus(
                 asLong(body.get("userId")),
-                asLong(body.get("nodeId")),
+                nodeId,
                 asLong(body.get("landingId")),
                 body.get("status") == null ? null : Integer.valueOf(String.valueOf(body.get("status"))));
     }
@@ -304,12 +319,16 @@ public class InboundController extends BaseController {
      * UUID 和端口,车友手上的订阅当场作废。这个接口就是来堵这个坑的。
      */
     @LogAnnotation
-    @RequireRole
+    @RequireRole(allowNodeAdmin = true)
     @PostMapping("/line-update")
     public R lineUpdate(@RequestBody Map<String, Object> body) {
+        Long nodeId = asLong(body.get("nodeId"));
+        if (!canManageNode(nodeId)) {
+            return R.err(403, "无权管理该节点");
+        }
         return inboundService.updateLine(
                 asLong(body.get("userId")),
-                asLong(body.get("nodeId")),
+                nodeId,
                 asLong(body.get("landingId")),
                 asLong(body.get("flow")),
                 asLong(body.get("expTime")),
@@ -318,10 +337,14 @@ public class InboundController extends BaseController {
 
     /** 彻底收回某车友的一条线路(不可逆) */
     @LogAnnotation
-    @RequireRole
+    @RequireRole(allowNodeAdmin = true)
     @PostMapping("/line-delete")
     public R lineDelete(@RequestBody Map<String, Object> body) {
-        return inboundService.deleteLine(asLong(body.get("userId")), asLong(body.get("nodeId")),
+        Long nodeId = asLong(body.get("nodeId"));
+        if (!canManageNode(nodeId)) {
+            return R.err(403, "无权管理该节点");
+        }
+        return inboundService.deleteLine(asLong(body.get("userId")), nodeId,
                 asLong(body.get("landingId")));
     }
 

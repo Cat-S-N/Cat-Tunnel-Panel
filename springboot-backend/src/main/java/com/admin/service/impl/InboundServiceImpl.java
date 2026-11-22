@@ -2380,4 +2380,121 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
         JSONObject probe = com.admin.common.utils.SocksProbeUtil.probe(host, f.getInPort(), username, password);
         return R.ok(probe);
     }
+
+    @Override
+    public R getNodeUsers(Long nodeId, Long landingId) {
+        if (nodeId == null) {
+            return R.err("缺少节点ID");
+        }
+        Node node = nodeMapper.selectById(nodeId);
+        if (node == null) {
+            return R.err("节点不存在");
+        }
+        String landingName = null;
+        if (landingId != null) {
+            com.admin.entity.Landing l = landingMapper.selectById(landingId);
+            if (l != null) landingName = l.getName();
+        }
+        QueryWrapper<Inbound> iqw = new QueryWrapper<Inbound>().eq("node_id", nodeId);
+        if (landingId == null) {
+            iqw.isNull("landing_id");
+        } else {
+            iqw.eq("landing_id", landingId);
+        }
+        List<Inbound> inbounds = this.list(iqw);
+        if (inbounds.isEmpty()) {
+            return R.ok(new com.alibaba.fastjson.JSONArray());
+        }
+        java.util.Map<Long, Inbound> inboundMap = new java.util.HashMap<>();
+        List<Long> inboundIds = new java.util.ArrayList<>();
+        for (Inbound in : inbounds) {
+            inboundMap.put(in.getId(), in);
+            inboundIds.add(in.getId());
+        }
+        List<InboundUser> ius = inboundUserMapper.selectList(
+                new QueryWrapper<InboundUser>().in("inbound_id", inboundIds));
+        java.util.Map<Long, List<InboundUser>> byUser = new java.util.LinkedHashMap<>();
+        for (InboundUser iu : ius) {
+            if (iu.getStatus() != null && iu.getStatus() == 0) continue;
+            byUser.computeIfAbsent(iu.getUserId(), k -> new java.util.ArrayList<>()).add(iu);
+        }
+        String host = linkHost(node);
+        com.alibaba.fastjson.JSONArray result = new com.alibaba.fastjson.JSONArray();
+        for (java.util.Map.Entry<Long, List<InboundUser>> entry : byUser.entrySet()) {
+            Long uid = entry.getKey();
+            User u = userMapper.selectById(uid);
+            String userName = u != null ? u.getUser() : ("用户#" + uid);
+            InboundLine lineRec = getLine(uid, nodeId, landingId);
+            Integer lineStatus = lineRec != null ? lineRec.getStatus() : 1;
+            String token = lineRec != null ? lineRec.getSubToken() : null;
+            long lineFlow = 0L;
+            com.alibaba.fastjson.JSONArray protocols = new com.alibaba.fastjson.JSONArray();
+            com.alibaba.fastjson.JSONArray socksNodes = new com.alibaba.fastjson.JSONArray();
+            for (InboundUser iu : entry.getValue()) {
+                if ((token == null || token.isEmpty()) && iu.getSubToken() != null && !iu.getSubToken().isEmpty()) {
+                    token = iu.getSubToken();
+                }
+                Forward f = null;
+                if (iu.getGostForwardId() != null) {
+                    f = forwardMapper.selectById(iu.getGostForwardId());
+                    if (f != null) {
+                        lineFlow += (f.getInFlow() == null ? 0L : f.getInFlow())
+                                + (f.getOutFlow() == null ? 0L : f.getOutFlow());
+                    }
+                }
+                Inbound in = inboundMap.get(iu.getInboundId());
+                if (in == null) continue;
+                JSONObject pObj = new JSONObject();
+                pObj.put("id", iu.getId());
+                pObj.put("inboundId", in.getId());
+                pObj.put("protocol", in.getProtocol());
+                pObj.put("remark", in.getRemark());
+                protocols.add(pObj);
+
+                if ("socks".equalsIgnoreCase(in.getProtocol()) && f != null && f.getInPort() != null
+                        && host != null && !host.isEmpty()) {
+                    String username = SingboxUtil.socksUsername(iu.getUuid());
+                    String password = iu.getPassword();
+                    if (!username.isEmpty() && password != null && !password.isEmpty()) {
+                        String remark = SubNames.resolve(in.getProtocol(), in.getRemark(), node.getName(),
+                                landingName, landingId != null, true, null, null).text;
+                        JSONObject sn = new JSONObject();
+                        sn.put("inboundUserId", iu.getId());
+                        sn.put("inboundId", in.getId());
+                        sn.put("nodeId", nodeId);
+                        sn.put("nodeName", node.getName());
+                        sn.put("landingId", landingId);
+                        sn.put("type", landingId != null ? "relay" : "direct");
+                        sn.put("landingName", landingName);
+                        sn.put("remark", in.getRemark());
+                        sn.put("host", host);
+                        sn.put("port", f.getInPort());
+                        sn.put("username", username);
+                        sn.put("password", password);
+                        sn.put("colonFormat", SingboxUtil.uriHost(host) + ":" + f.getInPort() + ":" + username + ":" + password);
+                        sn.put("link", SingboxUtil.buildSocksLink(iu.getUuid(), password, host, f.getInPort(), remark));
+                        sn.put("lineStatus", lineStatus);
+                        socksNodes.add(sn);
+                    }
+                }
+            }
+            JSONObject item = new JSONObject();
+            item.put("userId", uid);
+            item.put("userName", userName);
+            item.put("nodeId", nodeId);
+            item.put("nodeName", node.getName());
+            item.put("landingId", landingId);
+            item.put("landingName", landingName);
+            item.put("subToken", token);
+            item.put("flow", lineFlow);
+            item.put("quotaGb", lineRec != null ? lineRec.getFlow() : null);
+            item.put("lineExpTime", lineRec != null ? lineRec.getExpTime() : null);
+            item.put("lineStatus", lineStatus);
+            item.put("protocolCount", protocols.size());
+            item.put("protocols", protocols);
+            item.put("socksNodes", socksNodes);
+            result.add(item);
+        }
+        return R.ok(result);
+    }
 }

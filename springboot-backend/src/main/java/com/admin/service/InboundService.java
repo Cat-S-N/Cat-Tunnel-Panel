@@ -88,4 +88,7 @@ public interface InboundService extends IService<Inbound> {
 
     /** 探测指定 SOCKS5 分配记录的连通性，返回延迟与出口 IP */
     R testSocksNode(Long inboundUserId, Long requesterUserId, boolean isAdmin);
+
+    /** 查询某节点线路（nodeId × landingId）下所有已分配的用户、订阅链接与 SOCKS5 信息 */
+    R getNodeUsers(Long nodeId, Long landingId);
 }

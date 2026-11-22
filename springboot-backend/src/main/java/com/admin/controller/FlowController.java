@@ -118,7 +118,7 @@ public class FlowController extends BaseController {
     }
 
     @PostMapping("/config")
-    @LogAnnotation
+    @LogAnnotation(quiet = true)
     public String config(@RequestBody String rawData, String secret) {
         Node node = nodeService.getOne(new QueryWrapper<Node>().eq("secret", secret));
         if (node == null) return SUCCESS_RESPONSE;
@@ -141,7 +141,7 @@ public class FlowController extends BaseController {
     }
 
     @RequestMapping("/test")
-    @LogAnnotation
+    @LogAnnotation(quiet = true)
     public String test() {
         return "test";
     }
