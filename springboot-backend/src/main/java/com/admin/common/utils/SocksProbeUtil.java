@@ -139,4 +139,107 @@ public final class SocksProbeUtil {
         res.put("msg", msg);
         return res;
     }
+
+    /**
+     * 轻量 HTTP / HTTPS 代理连通性探测（HTTP CONNECT 隧道 + Basic 鉴权，HTTPS 跳过自签证书校验）。
+     */
+    public static JSONObject probeHttp(String host, int port, String username, String password, boolean useTls) {
+        JSONObject res = new JSONObject();
+        long start = System.currentTimeMillis();
+        Socket rawSocket = null;
+        Socket socket = null;
+        try {
+            rawSocket = new Socket();
+            rawSocket.connect(new InetSocketAddress(host, port), TIMEOUT_MS);
+            rawSocket.setSoTimeout(TIMEOUT_MS);
+            if (useTls) {
+                javax.net.ssl.TrustManager[] trustAll = new javax.net.ssl.TrustManager[]{
+                        new javax.net.ssl.X509TrustManager() {
+                            public java.security.cert.X509Certificate[] getAcceptedIssuers() { return new java.security.cert.X509Certificate[0]; }
+                            public void checkClientTrusted(java.security.cert.X509Certificate[] c, String a) {}
+                            public void checkServerTrusted(java.security.cert.X509Certificate[] c, String a) {}
+                        }
+                };
+                javax.net.ssl.SSLContext sc = javax.net.ssl.SSLContext.getInstance("TLS");
+                sc.init(null, trustAll, new java.security.SecureRandom());
+                javax.net.ssl.SSLSocket sslSocket = (javax.net.ssl.SSLSocket) sc.getSocketFactory()
+                        .createSocket(rawSocket, host, port, true);
+                sslSocket.setSoTimeout(TIMEOUT_MS);
+                sslSocket.startHandshake();
+                socket = sslSocket;
+            } else {
+                socket = rawSocket;
+            }
+
+            OutputStream out = socket.getOutputStream();
+            InputStream in = socket.getInputStream();
+
+            StringBuilder connectReq = new StringBuilder();
+            connectReq.append("CONNECT ").append(PROBE_HOST).append(":").append(PROBE_PORT).append(" HTTP/1.1\r\n");
+            connectReq.append("Host: ").append(PROBE_HOST).append(":").append(PROBE_PORT).append("\r\n");
+            if (username != null && !username.isEmpty()) {
+                String cred = java.util.Base64.getEncoder().encodeToString(
+                        (username + ":" + (password == null ? "" : password)).getBytes(StandardCharsets.UTF_8));
+                connectReq.append("Proxy-Authorization: Basic ").append(cred).append("\r\n");
+            }
+            connectReq.append("Proxy-Connection: Keep-Alive\r\n\r\n");
+            out.write(connectReq.toString().getBytes(StandardCharsets.US_ASCII));
+            out.flush();
+
+            String connectResp = readHttpHeaders(in);
+            if (!connectResp.startsWith("HTTP/1.1 200") && !connectResp.startsWith("HTTP/1.0 200")) {
+                String firstLine = connectResp.split("\r\n", 2)[0];
+                return fail(res, "代理握手失败: " + (firstLine.isEmpty() ? "空响应" : firstLine));
+            }
+
+            String httpReq = "GET / HTTP/1.1\r\nHost: " + PROBE_HOST + "\r\nUser-Agent: curl/8.0\r\nConnection: close\r\n\r\n";
+            out.write(httpReq.getBytes(StandardCharsets.US_ASCII));
+            out.flush();
+
+            ByteArrayOutputStream bodyBuf = new ByteArrayOutputStream();
+            byte[] buf = new byte[1024];
+            int n;
+            while ((n = in.read(buf)) != -1) {
+                bodyBuf.write(buf, 0, n);
+                if (bodyBuf.size() > 8192) break;
+            }
+            long latencyMs = System.currentTimeMillis() - start;
+            String raw = bodyBuf.toString(StandardCharsets.UTF_8);
+            String exitIp = "";
+            int idx = raw.indexOf("\r\n\r\n");
+            if (idx >= 0) {
+                exitIp = raw.substring(idx + 4).trim();
+                int nl = exitIp.indexOf('\n');
+                if (nl >= 0) exitIp = exitIp.substring(0, nl).trim();
+            }
+
+            res.put("ok", true);
+            res.put("latencyMs", latencyMs);
+            res.put("exitIp", exitIp);
+            res.put("msg", exitIp.isEmpty() ? "连接成功" : ("连通 · 出口 " + exitIp));
+            return res;
+        } catch (Exception e) {
+            return fail(res, e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName());
+        } finally {
+            try { if (socket != null) socket.close(); } catch (Exception ignored) {}
+            try { if (rawSocket != null && rawSocket != socket) rawSocket.close(); } catch (Exception ignored) {}
+        }
+    }
+
+    private static String readHttpHeaders(InputStream in) throws Exception {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        int prev3 = 0, prev2 = 0, prev1 = 0;
+        int b;
+        while ((b = in.read()) != -1) {
+            out.write(b);
+            if (prev3 == '\r' && prev2 == '\n' && prev1 == '\r' && b == '\n') {
+                break;
+            }
+            if (out.size() > 8192) break;
+            prev3 = prev2;
+            prev2 = prev1;
+            prev1 = b;
+        }
+        return out.toString(StandardCharsets.ISO_8859_1);
+    }
 }

@@ -570,7 +570,7 @@ export default function ForwardPage() {
   })();
 
   const protoLabel = (p: string) =>
-    (({ vless: "VLESS", trojan: "Trojan", vmess: "VMess", shadowsocks: "SS-2022", hysteria2: "Hysteria2", tuic: "TUIC", anytls: "AnyTLS", socks: "SOCKS5" } as any)[p] || p);
+    (({ vless: "VLESS", trojan: "Trojan", vmess: "VMess", shadowsocks: "SS-2022", hysteria2: "Hysteria2", tuic: "TUIC", anytls: "AnyTLS", socks: "SOCKS5", http: "HTTP", https: "HTTPS" } as any)[p] || p);
 
   // 名称留空就按「隧道名-序号」自动起,序号取该隧道下已有转发数往后排,撞了就继续往后
   const autoForwardName = (): string => {

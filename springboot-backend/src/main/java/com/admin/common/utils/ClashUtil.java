@@ -142,6 +142,17 @@ public class ClashUtil {
                 p.put("udp", true);
                 return p;
             }
+            case "http":
+            case "https": {
+                p.put("type", "http");
+                p.put("username", SingboxUtil.socksUsername(uuid));
+                p.put("password", password);
+                if ("https".equalsIgnoreCase(protocol)) {
+                    p.put("tls", true);
+                    p.put("skip-cert-verify", true);
+                }
+                return p;
+            }
             default:
                 return null;
         }

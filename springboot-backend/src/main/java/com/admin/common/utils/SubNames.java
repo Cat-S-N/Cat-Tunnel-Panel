@@ -65,6 +65,8 @@ public final class SubNames {
             case "tuic":        return "TUIC";
             case "anytls":      return "AnyTLS";
             case "socks":       return "SOCKS5";
+            case "http":        return "HTTP";
+            case "https":       return "HTTPS";
             default:            return "VLESS";
         }
     }

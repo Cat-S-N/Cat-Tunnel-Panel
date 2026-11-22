@@ -55,6 +55,12 @@ public class LandingUtil {
             if (lower.startsWith("socks5://") || lower.startsWith("socks://") || lower.startsWith("socks4://")) {
                 return new Parsed("socks5", parseSocks(s));
             }
+            if (lower.startsWith("https://")) {
+                return new Parsed("https", parseHttp(s, true));
+            }
+            if (lower.startsWith("http://")) {
+                return new Parsed("http", parseHttp(s, false));
+            }
             if (lower.startsWith("ss://")) {
                 return new Parsed("shadowsocks", parseShadowsocks(s));
             }
@@ -169,6 +175,52 @@ public class LandingUtil {
         if (user != null && !user.isEmpty()) {
             o.put("username", user);
             o.put("password", pass == null ? "" : pass);
+        }
+        return o;
+    }
+
+    // ---------- http://[user:pass@]host:port | https://[user:pass@]host:port ----------
+    private static JSONObject parseHttp(String s, boolean tls) {
+        String body = stripScheme(s);
+        body = stripFragment(body);
+        int q = body.indexOf('?');
+        if (q >= 0) body = body.substring(0, q);
+        int slash = body.indexOf('/');
+        if (slash >= 0) body = body.substring(0, slash);
+
+        String user = null, pass = null, hostPort;
+        int at = body.lastIndexOf('@');
+        if (at >= 0) {
+            String userinfo = body.substring(0, at);
+            hostPort = body.substring(at + 1);
+            if (userinfo.contains(":")) {
+                String[] up = userinfo.split(":", 2);
+                user = urlDecode(up[0]);
+                pass = urlDecode(up[1]);
+            } else {
+                String dec = tryBase64(userinfo);
+                if (dec != null && dec.contains(":")) {
+                    String[] up = dec.split(":", 2);
+                    user = up[0];
+                    pass = up[1];
+                } else {
+                    user = urlDecode(userinfo);
+                }
+            }
+        } else {
+            hostPort = body;
+        }
+        String[] hp = splitHostPort(hostPort);
+        JSONObject o = new JSONObject();
+        o.put("type", "http");
+        o.put("server", hp[0]);
+        o.put("server_port", Integer.parseInt(hp[1].trim()));
+        if (user != null && !user.isEmpty()) {
+            o.put("username", user);
+            o.put("password", pass == null ? "" : pass);
+        }
+        if (tls) {
+            o.put("tls", tlsBlock(hp[0], null, null, null));
         }
         return o;
     }

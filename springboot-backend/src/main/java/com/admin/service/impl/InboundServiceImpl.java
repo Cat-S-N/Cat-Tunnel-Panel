@@ -164,11 +164,11 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
                 }
                 in.setConfigJson(tcfg.toJSONString());
             }
-        } else if ("socks".equals(protocol)) {
-            // SOCKS5 入站(无 TLS,强制账号密码认证;用户分配时按 uuid 派生 username + password)
+        } else if ("socks".equals(protocol) || "http".equals(protocol)) {
+            // SOCKS5 / HTTP 入站(无 TLS,强制账号密码认证;用户分配时按 uuid 派生 username + password)
             in.setSecurity("none");
-        } else if ("hysteria2".equals(protocol) || "tuic".equals(protocol) || "anytls".equals(protocol)) {
-            // 自签 TLS(Hy2/TUIC 走 QUIC/UDP,AnyTLS 走 TCP;客户端 insecure);证书由节点端自动生成
+        } else if ("https".equals(protocol) || "hysteria2".equals(protocol) || "tuic".equals(protocol) || "anytls".equals(protocol)) {
+            // 自签 TLS(Hy2/TUIC 走 QUIC/UDP,AnyTLS/HTTPS 走 TCP;客户端 insecure);证书由节点端自动生成
             in.setSecurity("tls");
             String tlsSni = sanitizeSni(dto.getSni());
             in.setSni(tlsSni != null ? tlsSni : "www.bing.com");
@@ -939,11 +939,18 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
      * 名字 = v4 实际用的名字 + 「 v6」再去重 —— 开双栈永远不会改动任何一条 v4 节点的名字
      * (比如车友另有一个就叫「X v6」的节点)。v6 那条插在自己 v4 那条后面。
      */
+    /** 是否为不加入订阅、单独卡片展示的独立代理协议（SOCKS5 / HTTP / HTTPS） */
+    static boolean isStandaloneProxy(String protocol) {
+        if (protocol == null) return false;
+        String p = protocol.toLowerCase();
+        return "socks".equals(p) || "http".equals(p) || "https".equals(p);
+    }
+
     static void addClashProxies(List<java.util.Map<String, Object>> proxies, java.util.Set<String> usedNames,
                                 Inbound in, InboundUser iu, Node node, Forward forward, String remark,
                                 Tunnel tunnel, List<Runnable> pendingV6) {
-        if (in != null && "socks".equalsIgnoreCase(in.getProtocol())) {
-            // SOCKS5 不加入订阅链接，改由前端单独展示
+        if (in != null && isStandaloneProxy(in.getProtocol())) {
+            // SOCKS5 / HTTP / HTTPS 不加入订阅链接，改由前端单独展示
             return;
         }
         String v6Only = listensV6(in, tunnel) && v6OnlySub(node) ? dualV6Host(node) : null;
@@ -1092,8 +1099,8 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
      */
     static void addSubLinks(List<String> links, Inbound in, InboundUser iu, Node node, Forward forward, SubNames.Name nm,
                             Tunnel tunnel) {
-        if (in != null && "socks".equalsIgnoreCase(in.getProtocol())) {
-            // SOCKS5 不加入订阅链接，改由前端单独展示
+        if (in != null && isStandaloneProxy(in.getProtocol())) {
+            // SOCKS5 / HTTP / HTTPS 不加入订阅链接，改由前端单独展示
             return;
         }
         String v6 = listensV6(in, tunnel) ? dualV6Host(node) : null;
@@ -1218,6 +1225,9 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
                 return SingboxUtil.buildAnyTlsLink(password, ip, port, in.getSni(), remark);
             case "socks":
                 return SingboxUtil.buildSocksLink(uuid, password, ip, port, remark);
+            case "http":
+            case "https":
+                return SingboxUtil.buildHttpLink(p, uuid, password, ip, port, remark);
             default: // vless
                 return SingboxUtil.buildVlessRealityLink(uuid, ip, port, in.getSni(), in.getPublicKey(), in.getShortId(), remark);
         }
@@ -1389,7 +1399,7 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
                     pObj.put("remark", in.getRemark());
                     lineProtocols.add(pObj);
                 }
-                if (in != null && "socks".equalsIgnoreCase(in.getProtocol()) && node != null && f != null) {
+                if (in != null && isStandaloneProxy(in.getProtocol()) && node != null && f != null) {
                     String host = linkHost(node);
                     Integer port = f.getInPort();
                     String username = SingboxUtil.socksUsername(iu.getUuid());
@@ -1401,9 +1411,14 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
                         String displayLanding = (self && alias != null) ? null : landingName;
                         String remark = SubNames.resolve(in.getProtocol(), in.getRemark(), displayNodeName,
                                 displayLanding, landingId != null, true, alias, names.inbound(in.getId())).text;
+                        String protoLower = in.getProtocol().toLowerCase();
+                        String proxyLink = "socks".equals(protoLower)
+                                ? SingboxUtil.buildSocksLink(iu.getUuid(), password, host, port, remark)
+                                : SingboxUtil.buildHttpLink(protoLower, iu.getUuid(), password, host, port, remark);
                         JSONObject sn = new JSONObject();
                         sn.put("inboundUserId", iu.getId());
                         sn.put("inboundId", in.getId());
+                        sn.put("protocol", protoLower);
                         sn.put("nodeId", nodeId);
                         sn.put("nodeName", displayNodeName);
                         sn.put("landingId", landingId);
@@ -1415,7 +1430,7 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
                         sn.put("username", username);
                         sn.put("password", password);
                         sn.put("colonFormat", SingboxUtil.uriHost(host) + ":" + port + ":" + username + ":" + password);
-                        sn.put("link", SingboxUtil.buildSocksLink(iu.getUuid(), password, host, port, remark));
+                        sn.put("link", proxyLink);
                         sn.put("lineStatus", lineStatus);
                         socksNodes.add(sn);
                     }
@@ -2331,8 +2346,8 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
             return R.err("分配记录不存在");
         }
         Inbound in = this.getById(iu.getInboundId());
-        if (in == null || !"socks".equalsIgnoreCase(in.getProtocol())) {
-            return R.err("该记录不是 SOCKS5 协议");
+        if (in == null || !isStandaloneProxy(in.getProtocol())) {
+            return R.err("该记录不是独立代理协议(SOCKS5/HTTP/HTTPS)");
         }
         String newUuid = UUID.randomUUID().toString();
         String newPassword = UUID.randomUUID().toString().replace("-", "");
@@ -2356,8 +2371,8 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
             return R.err("分配记录不存在");
         }
         Inbound in = this.getById(iu.getInboundId());
-        if (in == null || !"socks".equalsIgnoreCase(in.getProtocol())) {
-            return R.err("该记录不是 SOCKS5 协议");
+        if (in == null || !isStandaloneProxy(in.getProtocol())) {
+            return R.err("该记录不是独立代理协议(SOCKS5/HTTP/HTTPS)");
         }
         if (!isAdmin) {
             boolean own = requesterUserId != null && requesterUserId.equals(iu.getUserId());
@@ -2377,7 +2392,10 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
         }
         String username = SingboxUtil.socksUsername(iu.getUuid());
         String password = iu.getPassword();
-        JSONObject probe = com.admin.common.utils.SocksProbeUtil.probe(host, f.getInPort(), username, password);
+        String protoLower = in.getProtocol().toLowerCase();
+        JSONObject probe = "socks".equals(protoLower)
+                ? com.admin.common.utils.SocksProbeUtil.probe(host, f.getInPort(), username, password)
+                : com.admin.common.utils.SocksProbeUtil.probeHttp(host, f.getInPort(), username, password, "https".equals(protoLower));
         return R.ok(probe);
     }
 
@@ -2451,16 +2469,21 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
                 pObj.put("remark", in.getRemark());
                 protocols.add(pObj);
 
-                if ("socks".equalsIgnoreCase(in.getProtocol()) && f != null && f.getInPort() != null
+                if (isStandaloneProxy(in.getProtocol()) && f != null && f.getInPort() != null
                         && host != null && !host.isEmpty()) {
                     String username = SingboxUtil.socksUsername(iu.getUuid());
                     String password = iu.getPassword();
                     if (!username.isEmpty() && password != null && !password.isEmpty()) {
                         String remark = SubNames.resolve(in.getProtocol(), in.getRemark(), node.getName(),
                                 landingName, landingId != null, true, null, null).text;
+                        String protoLower = in.getProtocol().toLowerCase();
+                        String proxyLink = "socks".equals(protoLower)
+                                ? SingboxUtil.buildSocksLink(iu.getUuid(), password, host, f.getInPort(), remark)
+                                : SingboxUtil.buildHttpLink(protoLower, iu.getUuid(), password, host, f.getInPort(), remark);
                         JSONObject sn = new JSONObject();
                         sn.put("inboundUserId", iu.getId());
                         sn.put("inboundId", in.getId());
+                        sn.put("protocol", protoLower);
                         sn.put("nodeId", nodeId);
                         sn.put("nodeName", node.getName());
                         sn.put("landingId", landingId);
@@ -2472,7 +2495,7 @@ public class InboundServiceImpl extends ServiceImpl<InboundMapper, Inbound> impl
                         sn.put("username", username);
                         sn.put("password", password);
                         sn.put("colonFormat", SingboxUtil.uriHost(host) + ":" + f.getInPort() + ":" + username + ":" + password);
-                        sn.put("link", SingboxUtil.buildSocksLink(iu.getUuid(), password, host, f.getInPort(), remark));
+                        sn.put("link", proxyLink);
                         sn.put("lineStatus", lineStatus);
                         socksNodes.add(sn);
                     }

@@ -201,7 +201,7 @@ export default function RelayPage() {
   }, []);
 
   const protoLabel = (p: string) =>
-    (({ vless: "VLESS-Reality", trojan: "Trojan-Reality", vmess: "VMess", shadowsocks: "Shadowsocks-2022", hysteria2: "Hysteria2", tuic: "TUIC", anytls: "AnyTLS", socks: "SOCKS5" } as any)[p] || p);
+    (({ vless: "VLESS-Reality", trojan: "Trojan-Reality", vmess: "VMess", shadowsocks: "Shadowsocks-2022", hysteria2: "Hysteria2", tuic: "TUIC", anytls: "AnyTLS", socks: "SOCKS5", http: "HTTP", https: "HTTPS" } as any)[p] || p);
   const landingById = (id: any) => landings.find((l) => l.id === id);
 
   const handleTest = async () => {
@@ -643,7 +643,7 @@ export default function RelayPage() {
           <ModalBody className="space-y-3">
             <Select
               label="协议"
-              maxListboxHeight={450}
+              maxListboxHeight={520}
               selectedKeys={[addProtoForm.protocol]}
               onSelectionChange={(k) => setAddProtoForm({ ...addProtoForm, protocol: String(Array.from(k)[0]) })}
             >
@@ -656,6 +656,8 @@ export default function RelayPage() {
               <SelectItem key="anytls">AnyTLS(自签证书)</SelectItem>
               <SelectItem key="shadowsocks">Shadowsocks-2022(无TLS,全客户端通用)</SelectItem>
               <SelectItem key="socks">SOCKS5(账号密码认证,独立展示不进订阅)</SelectItem>
+              <SelectItem key="http">HTTP 代理(账号密码认证,独立展示不进订阅)</SelectItem>
+              <SelectItem key="https">HTTPS 代理(自签TLS+账号密码,独立展示不进订阅)</SelectItem>
             </Select>
             {addProtoForm.protocol === "vmess-ws" && (
               <>

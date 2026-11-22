@@ -9,6 +9,7 @@ import { testSocksNode } from "@/api";
 export interface SocksNodeItem {
   inboundUserId?: number;
   inboundId: number;
+  protocol?: string;
   nodeId: number;
   nodeName: string;
   landingId?: number | null;
@@ -68,7 +69,7 @@ export function SocksNodesSection({
     <div className="border border-secondary/40 bg-secondary/5 rounded-lg p-3 space-y-3">
       <div className="flex items-center gap-2 flex-wrap">
         <Chip size="sm" color="secondary" variant="flat">
-          SOCKS5 独立代理
+          独立代理（SOCKS5 / HTTP / HTTPS）
         </Chip>
         <span className="text-xs text-default-500">
           不加入上方订阅链接，单独复制配置给指纹浏览器 / 业务工具 / 客户端使用
@@ -79,6 +80,9 @@ export function SocksNodesSection({
         {nodes.map((item) => {
           const isRelay = item.type === "relay";
           const stopped = item.lineStatus === 0;
+          const proto = (item.protocol || "socks").toLowerCase();
+          const protoText = proto === "https" ? "HTTPS" : proto === "http" ? "HTTP" : "SOCKS5";
+          const schemeText = proto === "https" ? "https://" : proto === "http" ? "http://" : "socks5://";
           const tr = item.inboundUserId != null ? testResults[item.inboundUserId] : undefined;
           return (
             <div
@@ -86,6 +90,9 @@ export function SocksNodesSection({
               className={`border border-default-200 bg-background/80 rounded-lg p-3 space-y-2 ${stopped ? "opacity-70" : ""}`}
             >
               <div className="flex items-center gap-2 flex-wrap">
+                <Chip size="sm" variant="flat" color={proto === "socks" ? "secondary" : proto === "https" ? "success" : "warning"}>
+                  {protoText}
+                </Chip>
                 <Chip size="sm" variant="flat" color={isRelay ? "warning" : "primary"}>
                   {isRelay ? `🔀 中转${item.landingName ? "→" + item.landingName : ""}` : "🖥️ 直连"}
                 </Chip>
@@ -147,11 +154,11 @@ export function SocksNodesSection({
                   variant="flat"
                   onPress={async () => {
                     (await copyTextToClipboard(item.link))
-                      ? toast.success("已复制 socks5:// 链接")
+                      ? toast.success(`已复制 ${schemeText} 链接`)
                       : toast.error("复制失败");
                   }}
                 >
-                  复制 socks5:// 链接
+                  复制 {schemeText} 链接
                 </Button>
                 {item.inboundUserId != null && (
                   <Button

@@ -8,8 +8,8 @@
 
 | 模块 | 说明 |
 |---|---|
-| **多协议管理** | 支持 `VLESS-Reality`、`Trojan-Reality`、`VMess`（TCP / WebSocket）、`Hysteria2`、`TUIC`、`AnyTLS`、`Shadowsocks-2022`、`SOCKS5`；支持整机一键搭建、单协议按需添加与单协议删除 |
-| **SOCKS5 独立代理** | 强制账号密码认证（拒绝空用户开放代理），支持 TCP + UDP；**不混入任何订阅链接**，在「我的订阅」和「用户管理」中独立卡片展示，一键复制 `IP:端口:账号:密码` 或 `socks5://` 链接 |
+| **多协议管理** | 支持 `VLESS-Reality`、`Trojan-Reality`、`VMess`（TCP / WebSocket）、`Hysteria2`、`TUIC`、`AnyTLS`、`Shadowsocks-2022`、`SOCKS5`、`HTTP`、`HTTPS`；支持整机一键搭建、单协议按需添加与单协议删除 |
+| **独立代理（SOCKS5 / HTTP / HTTPS）** | 强制账号密码认证（拒绝空用户开放代理），HTTPS 使用节点自签 TLS；**不混入任何订阅链接**，在「我的订阅」和「用户管理」中独立卡片展示，支持一键测试连通性、重置密码与复制 |
 | **按需分配协议** | 给用户分配机器或中转线路时支持多选具体协议（支持一键「全选 / 不含 SOCKS5 / 清空」），按线路独立控制限速、流量配额与到期时间 |
 | **多格式订阅** | 同时支持通用订阅（v2rayN / Shadowrocket / v2rayNG）、Clash / Mihomo 订阅，以及按用户开关控制的 Quantumult X 订阅 |
 | **中转与落地** | 前置机搭建协议 + 落地出口（住宅 SOCKS5 / 外部节点），自带在线连通性测试，直连与各中转线路各自独立计费与限速 |

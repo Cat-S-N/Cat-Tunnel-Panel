@@ -127,7 +127,7 @@ export default function InboundPage() {
   }, []);
 
   const protoLabel = (p: string) =>
-    (({ vless: "VLESS-Reality", trojan: "Trojan-Reality", vmess: "VMess", shadowsocks: "Shadowsocks-2022", hysteria2: "Hysteria2", tuic: "TUIC", anytls: "AnyTLS", socks: "SOCKS5" } as any)[p] || p);
+    (({ vless: "VLESS-Reality", trojan: "Trojan-Reality", vmess: "VMess", shadowsocks: "Shadowsocks-2022", hysteria2: "Hysteria2", tuic: "TUIC", anytls: "AnyTLS", socks: "SOCKS5", http: "HTTP", https: "HTTPS" } as any)[p] || p);
   const isReality = (p: string) => p === "vless" || p === "trojan";
 
   const handleCreate = async () => {
@@ -374,6 +374,8 @@ export default function InboundPage() {
           >
             <SelectItem key="all">全部协议</SelectItem>
             <SelectItem key="socks">SOCKS5</SelectItem>
+            <SelectItem key="http">HTTP</SelectItem>
+            <SelectItem key="https">HTTPS</SelectItem>
             <SelectItem key="shadowsocks">Shadowsocks-2022</SelectItem>
             <SelectItem key="vless">VLESS-Reality</SelectItem>
             <SelectItem key="trojan">Trojan-Reality</SelectItem>
@@ -711,7 +713,7 @@ export default function InboundPage() {
           <ModalBody className="space-y-3">
             <Select
               label="协议"
-              maxListboxHeight={450}
+              maxListboxHeight={520}
               selectedKeys={[createForm.protocol]}
               onSelectionChange={(k) => setCreateForm({ ...createForm, protocol: String(Array.from(k)[0]) })}
               description={
@@ -724,7 +726,11 @@ export default function InboundPage() {
                   : ["hysteria2", "tuic", "anytls"].includes(createForm.protocol)
                   ? "自签证书(无域名);客户端需勾选\"允许不安全/insecure\"。Hy2/TUIC 是 QUIC,快"
                   : createForm.protocol === "socks"
-                  ? "SOCKS5:强制账号密码认证(明文协议,适合业务代理/指纹浏览器/中转场景,不建议直接跨墙裸连)"
+                  ? "SOCKS5:强制账号密码认证(明文协议,适合业务代理/指纹浏览器/中转场景,不加入订阅)"
+                  : createForm.protocol === "http"
+                  ? "HTTP 代理:强制账号密码认证(仅 TCP,适合指纹浏览器/爬虫/业务代理,不加入订阅)"
+                  : createForm.protocol === "https"
+                  ? "HTTPS 代理:自签 TLS + 强制账号密码认证(仅 TCP,不加入订阅)"
                   : "Shadowsocks-2022:无 TLS、任何客户端都通,简单稳"
               }
             >
@@ -736,7 +742,9 @@ export default function InboundPage() {
               <SelectItem key="tuic">TUIC(QUIC,自签证书)</SelectItem>
               <SelectItem key="anytls">AnyTLS(自签证书)</SelectItem>
               <SelectItem key="shadowsocks">Shadowsocks-2022(无TLS,全客户端通用)</SelectItem>
-              <SelectItem key="socks">SOCKS5(账号密码认证,适合中转/业务代理)</SelectItem>
+              <SelectItem key="socks">SOCKS5(账号密码认证,独立展示不进订阅)</SelectItem>
+              <SelectItem key="http">HTTP 代理(账号密码认证,独立展示不进订阅)</SelectItem>
+              <SelectItem key="https">HTTPS 代理(自签TLS+账号密码,独立展示不进订阅)</SelectItem>
             </Select>
             <Select
               label="机器"

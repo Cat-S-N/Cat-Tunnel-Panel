@@ -182,6 +182,10 @@ public class SingboxUtil {
                 return buildAnyTls(in, users);
             case "socks":
                 return buildSocks(in, users);
+            case "http":
+                return buildHttp(in, users, false);
+            case "https":
+                return buildHttp(in, users, true);
             default:
                 return null;
         }
@@ -556,6 +560,46 @@ public class SingboxUtil {
     public static String buildSocksLink(String uuid, String password, String serverIp, Integer port, String remark) {
         String user = socksUsername(uuid);
         return "socks5://" + urlEncode(user) + ":" + urlEncode(password) + "@" + uriHost(serverIp) + ":" + port
+                + "#" + urlEncode(remark);
+    }
+
+    /**
+     * HTTP / HTTPS 代理入站（强制账号密码认证，listen 一律 127.0.0.1，公网口由 gost 转发并限速）。
+     * 与 SOCKS5 相同：无已启用用户时返回 null 不下发，防止开放代理；HTTPS 复用节点自签 TLS 证书。
+     */
+    private static JSONObject buildHttp(Inbound in, List<InboundUser> users, boolean tls) {
+        JSONArray userArr = new JSONArray();
+        if (users != null) {
+            for (InboundUser u : users) {
+                if (u.getStatus() != null && u.getStatus() == 0) continue;
+                String username = socksUsername(u.getUuid());
+                if (username.isEmpty() || u.getPassword() == null || u.getPassword().isEmpty()) continue;
+                JSONObject uj = new JSONObject();
+                uj.put("username", username);
+                uj.put("password", u.getPassword());
+                userArr.add(uj);
+            }
+        }
+        if (userArr.isEmpty()) {
+            return null;
+        }
+        JSONObject inbound = new JSONObject();
+        inbound.put("type", "http");
+        inbound.put("tag", in.getTag());
+        inbound.put("listen", "127.0.0.1");
+        inbound.put("listen_port", in.getListenPort());
+        inbound.put("users", userArr);
+        if (tls) {
+            inbound.put("tls", buildSelfTls(in));
+        }
+        return inbound;
+    }
+
+    /** 生成 HTTP / HTTPS 代理分享链接（http:// 或 https://） */
+    public static String buildHttpLink(String scheme, String uuid, String password, String serverIp, Integer port, String remark) {
+        String s = "https".equalsIgnoreCase(scheme) ? "https" : "http";
+        String user = socksUsername(uuid);
+        return s + "://" + urlEncode(user) + ":" + urlEncode(password) + "@" + uriHost(serverIp) + ":" + port
                 + "#" + urlEncode(remark);
     }
 }

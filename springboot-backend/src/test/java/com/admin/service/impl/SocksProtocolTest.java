@@ -111,4 +111,51 @@ class SocksProtocolTest {
         InboundServiceImpl.addClashProxies(proxies, ClashUtil.newNameSet(), in, iu, node, forward, "日本机 SOCKS5", null);
         assertTrue(proxies.isEmpty(), "SOCKS5 不应进入 Clash 订阅");
     }
+
+    @Test
+    void httpAndHttpsLandingAndInboundWorkAndStayOutOfSubscriptions() {
+        com.admin.common.utils.LandingUtil.Parsed hp = com.admin.common.utils.LandingUtil.parse("http://u1:p1@198.51.100.1:8080");
+        assertEquals("http", hp.type);
+        assertEquals("http", hp.outbound.getString("type"));
+        assertEquals("198.51.100.1", hp.outbound.getString("server"));
+        assertEquals(8080, hp.outbound.getIntValue("server_port"));
+        assertEquals("u1", hp.outbound.getString("username"));
+        assertEquals("p1", hp.outbound.getString("password"));
+        assertNull(hp.outbound.getJSONObject("tls"));
+
+        com.admin.common.utils.LandingUtil.Parsed hps = com.admin.common.utils.LandingUtil.parse("https://u2:p2@proxy.example.com:8443");
+        assertEquals("https", hps.type);
+        assertEquals("http", hps.outbound.getString("type"));
+        assertNotNull(hps.outbound.getJSONObject("tls"));
+        assertTrue(hps.outbound.getJSONObject("tls").getBooleanValue("enabled"));
+        assertTrue(hps.outbound.getJSONObject("tls").getBooleanValue("insecure"));
+
+        Inbound httpsIn = new Inbound();
+        httpsIn.setId(10L);
+        httpsIn.setTag("in-2-40010");
+        httpsIn.setProtocol("https");
+        httpsIn.setListenPort(40010);
+        httpsIn.setSni("www.bing.com");
+
+        assertNull(SingboxUtil.buildInbound(httpsIn, Collections.emptyList()), "无用户时 HTTPS 入站不应下发");
+
+        InboundUser iu = new InboundUser();
+        iu.setUuid("a1b2c3d4-e5f6-7890-abcd-ef1234567890");
+        iu.setPassword("secret888");
+        iu.setStatus(1);
+        JSONObject built = SingboxUtil.buildInbound(httpsIn, Collections.singletonList(iu));
+        assertNotNull(built);
+        assertEquals("http", built.getString("type"));
+        assertNotNull(built.getJSONObject("tls"));
+        assertEquals(1, built.getJSONArray("users").size());
+
+        Node node = new Node();
+        node.setServerIp("203.0.113.5");
+        Forward forward = new Forward();
+        forward.setInPort(20002);
+        List<String> links = new ArrayList<>();
+        InboundServiceImpl.addSubLinks(links, httpsIn, iu, node, forward,
+                SubNames.resolve("https", null, "日本机", null, false, false, null, null), null);
+        assertTrue(links.isEmpty(), "HTTPS 独立代理不应进入通用订阅链接");
+    }
 }
