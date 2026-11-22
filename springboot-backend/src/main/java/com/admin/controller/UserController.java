@@ -169,6 +169,7 @@ public class UserController extends BaseController {
         int size = 20;
         String keyword = null;
         Long userId = null;
+        String status = null;
         if (body != null) {
             if (body.get("page") != null) {
                 try { page = Integer.parseInt(String.valueOf(body.get("page"))); } catch (NumberFormatException ignored) {}
@@ -179,6 +180,9 @@ public class UserController extends BaseController {
             if (body.get("keyword") != null) {
                 keyword = String.valueOf(body.get("keyword"));
             }
+            if (body.get("status") != null) {
+                status = String.valueOf(body.get("status"));
+            }
             if (body.get("userId") != null) {
                 try {
                     String s = String.valueOf(body.get("userId")).trim();
@@ -188,7 +192,7 @@ public class UserController extends BaseController {
                 } catch (NumberFormatException ignored) {}
             }
         }
-        return R.ok(auditLogStore.query(page, size, keyword, userId));
+        return R.ok(auditLogStore.query(page, size, keyword, userId, status));
     }
 
     /** 清空全部操作审计日志（仅超级管理员可用） */

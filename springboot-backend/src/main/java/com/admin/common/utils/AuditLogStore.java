@@ -288,13 +288,19 @@ public class AuditLogStore {
     }
 
     public Map<String, Object> query(int page, int size, String keyword, Long userId) {
+        return query(page, size, keyword, userId, null);
+    }
+
+    public Map<String, Object> query(int page, int size, String keyword, Long userId, String status) {
         int safePage = Math.max(1, page);
         int safeSize = Math.min(100, Math.max(1, size));
         int offset = (safePage - 1) * safeSize;
+        String normalizedStatus = normalizeStatus(status);
 
         Map<String, Object> res = new LinkedHashMap<>();
         res.put("records", Collections.emptyList());
         res.put("total", 0L);
+        res.put("failedCount", 0L);
         res.put("page", safePage);
         res.put("size", safeSize);
 
@@ -302,35 +308,46 @@ public class AuditLogStore {
             return res;
         }
 
-        StringBuilder where = new StringBuilder(" WHERE 1=1");
-        List<Object> args = new ArrayList<>();
+        StringBuilder baseWhere = new StringBuilder(" WHERE 1=1");
+        List<Object> baseArgs = new ArrayList<>();
         if (userId != null) {
-            where.append(" AND `user_id` = ?");
-            args.add(userId);
+            baseWhere.append(" AND `user_id` = ?");
+            baseArgs.add(userId);
         }
         if (keyword != null && !keyword.trim().isEmpty()) {
             String like = "%" + keyword.trim() + "%";
-            where.append(" AND (`username` LIKE ? OR `action` LIKE ? OR `ip` LIKE ? OR `params` LIKE ? OR `method` LIKE ?)");
-            args.add(like);
-            args.add(like);
-            args.add(like);
-            args.add(like);
-            args.add(like);
+            baseWhere.append(" AND (`username` LIKE ? OR `action` LIKE ? OR `ip` LIKE ? OR `params` LIKE ? OR `method` LIKE ?)");
+            baseArgs.add(like);
+            baseArgs.add(like);
+            baseArgs.add(like);
+            baseArgs.add(like);
+            baseArgs.add(like);
+        }
+
+        StringBuilder filteredWhere = new StringBuilder(baseWhere);
+        if ("success".equals(normalizedStatus)) {
+            filteredWhere.append(" AND `result_code` = 0");
+        } else if ("failed".equals(normalizedStatus)) {
+            filteredWhere.append(" AND `result_code` <> 0");
         }
 
         try {
+            Long failedCount = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM `audit_log`" + baseWhere + " AND `result_code` <> 0",
+                    Long.class, baseArgs.toArray());
             Long total = jdbc.queryForObject(
-                    "SELECT COUNT(*) FROM `audit_log`" + where, Long.class, args.toArray());
-            List<Object> listArgs = new ArrayList<>(args);
+                    "SELECT COUNT(*) FROM `audit_log`" + filteredWhere, Long.class, baseArgs.toArray());
+            List<Object> listArgs = new ArrayList<>(baseArgs);
             listArgs.add(safeSize);
             listArgs.add(offset);
             List<Map<String, Object>> rows = jdbc.queryForList(
                     "SELECT `id`, `user_id` AS `userId`, `username`, `role_label` AS `roleLabel`, "
                             + "`action`, `method`, `ip`, `params`, `result_code` AS `resultCode`, `created_time` AS `createdTime` "
-                            + "FROM `audit_log`" + where + " ORDER BY `created_time` DESC, `id` DESC LIMIT ? OFFSET ?",
+                            + "FROM `audit_log`" + filteredWhere + " ORDER BY `created_time` DESC, `id` DESC LIMIT ? OFFSET ?",
                     listArgs.toArray());
             res.put("records", rows);
             res.put("total", total == null ? 0L : total);
+            res.put("failedCount", failedCount == null ? 0L : failedCount);
         } catch (Exception e) {
             if (e.getMessage() != null && e.getMessage().contains("doesn't exist")) {
                 available = false;
@@ -338,6 +355,15 @@ public class AuditLogStore {
             log.warn("查询操作审计日志失败: {}", e.getMessage());
         }
         return res;
+    }
+
+    static String normalizeStatus(String status) {
+        if (status == null) return "all";
+        String s = status.trim().toLowerCase(java.util.Locale.ROOT);
+        if ("success".equals(s) || "failed".equals(s)) {
+            return s;
+        }
+        return "all";
     }
 
     public int clearAll() {

@@ -1,8 +1,20 @@
 package com.admin.common.utils;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import java.util.Collections;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class AuditLogStoreTest {
 
@@ -42,5 +54,35 @@ class AuditLogStoreTest {
         assertEquals("admin", AuditLogStore.extractLoginUsername("{\"username\":\"admin\",\"password\":\"***\"}"));
         assertEquals("cat", AuditLogStore.extractLoginUsername("{\"user\":\"cat\",\"pwd\":\"***\"}"));
         assertNull(AuditLogStore.extractLoginUsername("{\"password\":\"***\"}"));
+    }
+
+    @Test
+    void queryFiltersByStatusAndReturnsFailedCount() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        AuditLogStore store = new AuditLogStore();
+        ReflectionTestUtils.setField(store, "jdbc", jdbc);
+        ReflectionTestUtils.setField(store, "available", true);
+
+        when(jdbc.queryForObject(eq("SELECT COUNT(*) FROM `audit_log` WHERE 1=1 AND `result_code` <> 0"), eq(Long.class), any(Object[].class)))
+                .thenReturn(3L);
+        when(jdbc.queryForObject(eq("SELECT COUNT(*) FROM `audit_log` WHERE 1=1"), eq(Long.class), any(Object[].class)))
+                .thenReturn(10L);
+        when(jdbc.queryForList(anyString(), any(Object[].class)))
+                .thenReturn(Collections.emptyList());
+
+        Map<String, Object> allRes = store.query(1, 20, null, null, "all");
+        assertEquals(10L, allRes.get("total"));
+        assertEquals(3L, allRes.get("failedCount"));
+
+        when(jdbc.queryForObject(contains("AND `result_code` = 0"), eq(Long.class), any(Object[].class)))
+                .thenReturn(7L);
+        Map<String, Object> successRes = store.query(1, 20, null, null, "success");
+        assertEquals(7L, successRes.get("total"));
+        assertEquals(3L, successRes.get("failedCount"));
+        verify(jdbc).queryForList(contains("AND `result_code` = 0"), eq(20), eq(0));
+
+        Map<String, Object> failedRes = store.query(1, 20, null, null, "failed");
+        assertEquals(3L, failedRes.get("failedCount"));
+        verify(jdbc).queryForList(contains("AND `result_code` <> 0"), eq(20), eq(0));
     }
 }

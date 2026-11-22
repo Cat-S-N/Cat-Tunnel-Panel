@@ -172,6 +172,12 @@ export const getSubAccessLogs = (userId: number, nodeId?: number | null) =>
   Network.post("/inbound/sub-logs", { userId, nodeId: nodeId ?? null });
 
 // 操作审计日志
-export const getAuditLogs = (params: { page?: number; size?: number; keyword?: string; userId?: number | null }) =>
+export const getAuditLogs = (params: {
+  page?: number;
+  size?: number;
+  keyword?: string;
+  userId?: number | null;
+  status?: "all" | "success" | "failed";
+}) =>
   Network.post("/user/audit-logs", params);
 export const clearAuditLogs = () => Network.post("/user/audit-logs-clear", {});

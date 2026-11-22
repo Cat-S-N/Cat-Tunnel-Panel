@@ -31,6 +31,19 @@ interface AuditLogRow {
 
 const fmtTime = (ms: number) => (ms ? new Date(ms).toLocaleString() : "-");
 
+const escapeCsvCell = (raw: unknown): string => {
+  let str = raw === null || raw === undefined ? "" : String(raw);
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = "'" + str;
+  }
+  if (/[",\n\r]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+};
+
+type AuditStatusFilter = "all" | "success" | "failed";
+
 const roleChipColor = (role: string): "danger" | "warning" | "default" => {
   if (role === "超级管理员") return "danger";
   if (role === "节点管理员") return "warning";
@@ -42,23 +55,27 @@ export default function AuditPage() {
   const [clearing, setClearing] = useState(false);
   const [keyword, setKeyword] = useState("");
   const [searchInput, setSearchInput] = useState("");
+  const [status, setStatus] = useState<AuditStatusFilter>("all");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [failedCount, setFailedCount] = useState(0);
   const [rows, setRows] = useState<AuditLogRow[]>([]);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const size = 20;
 
-  const loadLogs = async (targetPage = page, targetKeyword = keyword) => {
+  const loadLogs = async (targetPage = page, targetKeyword = keyword, targetStatus = status) => {
     setLoading(true);
     try {
       const res = await getAuditLogs({
         page: targetPage,
         size,
         keyword: targetKeyword.trim() || undefined,
+        status: targetStatus,
       });
       if (res.code === 0 && res.data) {
         setRows(Array.isArray(res.data.records) ? res.data.records : []);
         setTotal(Number(res.data.total || 0));
+        setFailedCount(Number(res.data.failedCount || 0));
       } else {
         toast.error(res.msg || "加载操作日志失败");
       }
@@ -70,12 +87,54 @@ export default function AuditPage() {
   };
 
   useEffect(() => {
-    loadLogs(page, keyword);
-  }, [page, keyword]);
+    loadLogs(page, keyword, status);
+  }, [page, keyword, status]);
 
   const handleSearch = () => {
     setPage(1);
     setKeyword(searchInput);
+  };
+
+  const handleStatusChange = (nextStatus: AuditStatusFilter) => {
+    if (nextStatus === status) return;
+    setPage(1);
+    setStatus(nextStatus);
+  };
+
+  const handleExportCsv = () => {
+    if (rows.length === 0) {
+      toast.error("当前页暂无可导出的记录");
+      return;
+    }
+    const headers = ["时间", "操作人", "角色", "动作", "方法", "来源IP", "结果", "参数摘要"];
+    const lines = [
+      headers.map(escapeCsvCell).join(","),
+      ...rows.map((row) =>
+        [
+          fmtTime(row.createdTime),
+          row.username || "匿名",
+          row.roleLabel || "-",
+          row.action || "",
+          row.method || "",
+          row.ip || "-",
+          row.resultCode === 0 ? "成功" : `失败(${row.resultCode})`,
+          row.params || "",
+        ]
+          .map(escapeCsvCell)
+          .join(",")
+      ),
+    ];
+    const blob = new Blob(["\uFEFF" + lines.join("\r\n")], {
+      type: "text/csv;charset=utf-8;",
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `audit-logs-page-${page}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
   const handleClear = async () => {
@@ -104,12 +163,47 @@ export default function AuditPage() {
       <Card>
         <CardHeader className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
-            <h1 className="text-xl font-bold">📜 操作审计日志</h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-xl font-bold">📜 操作审计日志</h1>
+              <Chip size="sm" variant="flat" color="default">
+                共 {total} 条
+              </Chip>
+              <Chip size="sm" variant="flat" color={failedCount > 0 ? "danger" : "default"}>
+                失败 {failedCount} 条
+              </Chip>
+            </div>
             <p className="text-xs text-default-500 mt-0.5">
               自动记录超级管理员、节点管理员及用户的关键变更操作（自动脱敏密码与密钥，保留 90 天）
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1">
+              {(
+                [
+                  { key: "all", label: "全部" },
+                  { key: "success", label: "成功" },
+                  { key: "failed", label: "失败" },
+                ] as const
+              ).map((item) => (
+                <Button
+                  key={item.key}
+                  size="sm"
+                  variant={status === item.key ? "solid" : "flat"}
+                  color={
+                    status === item.key
+                      ? item.key === "failed"
+                        ? "danger"
+                        : item.key === "success"
+                        ? "success"
+                        : "primary"
+                      : "default"
+                  }
+                  onPress={() => handleStatusChange(item.key)}
+                >
+                  {item.label}
+                </Button>
+              ))}
+            </div>
             <Input
               size="sm"
               className="w-60"
@@ -129,7 +223,10 @@ export default function AuditPage() {
             <Button size="sm" color="primary" onPress={handleSearch}>
               搜索
             </Button>
-            <Button size="sm" variant="flat" onPress={() => loadLogs(page, keyword)} isLoading={loading}>
+            <Button size="sm" variant="flat" onPress={handleExportCsv} isDisabled={rows.length === 0}>
+              导出当前页 CSV
+            </Button>
+            <Button size="sm" variant="flat" onPress={() => loadLogs(page, keyword, status)} isLoading={loading}>
               刷新
             </Button>
             <Button size="sm" color="danger" variant="flat" onPress={handleClear} isLoading={clearing}>
