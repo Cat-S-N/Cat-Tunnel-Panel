@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# TMS 一键本地构建与远程发布脚本
+# Cat Tunnel Panel 一键本地构建与远程发布脚本
 # 用法:
 #   ./deploy.sh frontend          # 仅构建前端
 #   ./deploy.sh backend           # 仅构建后端（需本机 Java 21 + Maven）
