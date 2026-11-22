@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Button } from "@heroui/button";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Input } from "@heroui/input";
@@ -109,6 +109,25 @@ const calculateUserTotalUsedFlow = (user: User): number => {
   return (user.inFlow || 0) + (user.outFlow || 0);
 };
 
+const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+
+const getUserFlowPercent = (user: User): number => {
+  if (!user.flow || user.flow <= 0) return 0;
+  return (calculateUserTotalUsedFlow(user) / (user.flow * 1024 * 1024 * 1024)) * 100;
+};
+
+const isUserExpired = (user: User, now: number): boolean =>
+  Boolean(user.expTime && user.expTime > 0 && user.expTime < now);
+
+const isUserExpiringSoon = (user: User, now: number): boolean =>
+  Boolean(user.expTime && user.expTime > 0 && user.expTime >= now && user.expTime - now <= SEVEN_DAYS_MS);
+
+const isUserFlowWarning = (user: User): boolean =>
+  Boolean(user.flow && user.flow > 0 && getUserFlowPercent(user) >= 90);
+
+type UserStatusFilter = 'all' | 'active' | 'expiring' | 'expired' | 'flow_warning' | 'disabled';
+type UserSortBy = 'default' | 'flow_desc' | 'exp_asc';
+
 const calculateTunnelUsedFlow = (tunnel: UserTunnel): number => {
   const inFlow = tunnel.inFlow || 0;
   const outFlow = tunnel.outFlow || 0;
@@ -122,6 +141,52 @@ export default function UserPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState('');
+  const [statusFilter, setStatusFilter] = useState<UserStatusFilter>('all');
+  const [sortBy, setSortBy] = useState<UserSortBy>('default');
+
+  const userStats = useMemo(() => {
+    const now = Date.now();
+    let active = 0;
+    let expiring = 0;
+    let expired = 0;
+    let flowWarning = 0;
+    let disabled = 0;
+    for (const u of users) {
+      const exp = isUserExpired(u, now);
+      if (u.status !== 1) {
+        disabled += 1;
+      } else if (!exp) {
+        active += 1;
+      }
+      if (exp) expired += 1;
+      if (isUserExpiringSoon(u, now)) expiring += 1;
+      if (isUserFlowWarning(u)) flowWarning += 1;
+    }
+    return { total: users.length, active, expiring, expired, flowWarning, disabled };
+  }, [users]);
+
+  const displayedUsers = useMemo(() => {
+    const now = Date.now();
+    const filtered = users.filter((u) => {
+      if (statusFilter === 'active') return u.status === 1 && !isUserExpired(u, now);
+      if (statusFilter === 'expiring') return isUserExpiringSoon(u, now);
+      if (statusFilter === 'expired') return isUserExpired(u, now);
+      if (statusFilter === 'flow_warning') return isUserFlowWarning(u);
+      if (statusFilter === 'disabled') return u.status !== 1;
+      return true;
+    });
+    if (sortBy === 'flow_desc') {
+      return [...filtered].sort((a, b) => getUserFlowPercent(b) - getUserFlowPercent(a));
+    }
+    if (sortBy === 'exp_asc') {
+      return [...filtered].sort((a, b) => {
+        const aExp = a.expTime && a.expTime > 0 ? a.expTime : Number.MAX_SAFE_INTEGER;
+        const bExp = b.expTime && b.expTime > 0 ? b.expTime : Number.MAX_SAFE_INTEGER;
+        return aExp - bExp;
+      });
+    }
+    return filtered;
+  }, [users, statusFilter, sortBy]);
   const [pagination, setPagination] = useState<PaginationType>({
     current: 1,
     size: 10,
@@ -649,8 +714,81 @@ export default function UserPage() {
     
       <div className="px-3 lg:px-6 py-8">
       {/* 页面头部 */}
-      <div className="flex flex-col gap-4 mb-6">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col gap-3 mb-6">
+        <div className="flex flex-wrap items-center gap-2">
+          <Chip size="sm" variant="flat" color="default">
+            总用户：{userStats.total}
+          </Chip>
+          <Chip size="sm" variant="flat" color="success">
+            正常：{userStats.active}
+          </Chip>
+          <Chip size="sm" variant="flat" color={userStats.expiring > 0 ? "warning" : "default"}>
+            7天内到期：{userStats.expiring}
+          </Chip>
+          <Chip size="sm" variant="flat" color={userStats.expired > 0 ? "danger" : "default"}>
+            已到期：{userStats.expired}
+          </Chip>
+          <Chip size="sm" variant="flat" color={userStats.flowWarning > 0 ? "warning" : "default"}>
+            流量预警(≥90%)：{userStats.flowWarning}
+          </Chip>
+          <Chip size="sm" variant="flat" color={userStats.disabled > 0 ? "danger" : "default"}>
+            已禁用：{userStats.disabled}
+          </Chip>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-1">
+            {(
+              [
+                { key: 'all', label: '全部' },
+                { key: 'active', label: '正常' },
+                { key: 'expiring', label: '即将到期' },
+                { key: 'expired', label: '已到期' },
+                { key: 'flow_warning', label: '流量预警' },
+                { key: 'disabled', label: '已禁用' },
+              ] as const
+            ).map((item) => (
+              <Button
+                key={item.key}
+                size="sm"
+                variant={statusFilter === item.key ? 'solid' : 'flat'}
+                color={
+                  statusFilter === item.key
+                    ? item.key === 'expired' || item.key === 'disabled'
+                      ? 'danger'
+                      : item.key === 'expiring' || item.key === 'flow_warning'
+                      ? 'warning'
+                      : item.key === 'active'
+                      ? 'success'
+                      : 'primary'
+                    : 'default'
+                }
+                onPress={() => setStatusFilter(item.key)}
+              >
+                {item.label}
+              </Button>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1">
+            {(
+              [
+                { key: 'default', label: '默认排序' },
+                { key: 'flow_desc', label: '流量使用率降序' },
+                { key: 'exp_asc', label: '到期时间升序' },
+              ] as const
+            ).map((item) => (
+              <Button
+                key={item.key}
+                size="sm"
+                variant={sortBy === item.key ? 'solid' : 'flat'}
+                color={sortBy === item.key ? 'secondary' : 'default'}
+                onPress={() => setSortBy(item.key)}
+              >
+                {item.label}
+              </Button>
+            ))}
+          </div>
         </div>
         
         <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
@@ -712,9 +850,29 @@ export default function UserPage() {
             </div>
           </CardBody>
         </Card>
+      ) : displayedUsers.length === 0 ? (
+        <Card className="shadow-sm border border-gray-200 dark:border-gray-700">
+          <CardBody className="text-center py-14">
+            <div className="flex flex-col items-center gap-3">
+              <h3 className="text-base font-semibold text-foreground">无匹配用户</h3>
+              <p className="text-default-500 text-sm">当前筛选条件下没有匹配的用户</p>
+              <Button
+                size="sm"
+                color="primary"
+                variant="flat"
+                onPress={() => {
+                  setStatusFilter('all');
+                  setSortBy('default');
+                }}
+              >
+                重置筛选
+              </Button>
+            </div>
+          </CardBody>
+        </Card>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-          {users.map((user) => {
+          {displayedUsers.map((user) => {
             const userStatus = getUserStatus(user);
             const expStatus = user.expTime ? getExpireStatus(user.expTime) : null;
             const usedFlow = calculateUserTotalUsedFlow(user);
