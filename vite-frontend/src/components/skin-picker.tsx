@@ -20,17 +20,26 @@ export default function SkinPicker() {
     />
   );
 
-  const currentSwatch = SKINS.find((s) => s.id === current)?.swatch ?? SKINS[0].swatch;
+  const currentSkin = SKINS.find((s) => s.id === current) ?? SKINS[0];
+  const currentSwatch = currentSkin.swatch;
+  const triggerLabel = `切换主题（当前：${currentSkin.name}）`;
 
   return (
     <Dropdown placement="bottom-end">
       <DropdownTrigger>
-        <Button isIconOnly variant="light" aria-label="主题">
+        <Button
+          isIconOnly
+          variant="light"
+          aria-label={triggerLabel}
+          title={triggerLabel}
+        >
           {swatch(currentSwatch)}
         </Button>
       </DropdownTrigger>
       <DropdownMenu
         aria-label="主题"
+        selectionMode="single"
+        selectedKeys={new Set([current])}
         onAction={(key) => {
           applySkin(String(key));
           setCurrent(String(key));

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Button } from "@heroui/button";
 import { Dropdown, DropdownTrigger, DropdownMenu, DropdownItem } from "@heroui/dropdown";
@@ -47,6 +47,8 @@ export default function AdminLayout({
 
   const [isMobile, setIsMobile] = useState(false);
   const [mobileMenuVisible, setMobileMenuVisible] = useState(false);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const mainRef = useRef<HTMLElement>(null);
   const [username, setUsername] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [isNodeAdmin, setIsNodeAdmin] = useState(false);
@@ -291,6 +293,43 @@ export default function AdminLayout({
     };
   }, []);
 
+  // 监听主内容区滚动，控制「回到顶部」悬浮按钮显示
+  useEffect(() => {
+    const handleScroll = () => {
+      const scrollTop = isMobile ? window.scrollY : (mainRef.current?.scrollTop ?? 0);
+      setShowScrollTop(scrollTop > 300);
+    };
+
+    handleScroll();
+    if (isMobile) {
+      window.addEventListener('scroll', handleScroll, { passive: true });
+      return () => window.removeEventListener('scroll', handleScroll);
+    }
+
+    const mainEl = mainRef.current;
+    if (!mainEl) return;
+    mainEl.addEventListener('scroll', handleScroll, { passive: true });
+    return () => mainEl.removeEventListener('scroll', handleScroll);
+  }, [isMobile]);
+
+  // 路由切换时自动滚回顶部并收起移动端抽屉
+  useEffect(() => {
+    if (isMobile) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setMobileMenuVisible(false);
+    } else {
+      mainRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [location.pathname, isMobile]);
+
+  const scrollToTop = () => {
+    if (isMobile) {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      mainRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
   // 退出登录
   const handleLogout = () => {
     safeLogout();
@@ -515,6 +554,9 @@ export default function AdminLayout({
                 variant="light"
                 onPress={toggleMobileMenu}
                 className="lg:hidden"
+                aria-label={mobileMenuVisible ? '关闭导航菜单' : '打开导航菜单'}
+                title={mobileMenuVisible ? '关闭导航菜单' : '打开导航菜单'}
+                aria-expanded={mobileMenuVisible}
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
@@ -580,11 +622,29 @@ export default function AdminLayout({
         </header>
 
         {/* 主内容 */}
-        <main className={`flex-1 bg-transparent ${isMobile ? '' : 'overflow-y-auto'}`}>
+        <main ref={mainRef} className={`flex-1 bg-transparent ${isMobile ? '' : 'overflow-y-auto'}`}>
           <ClientRecommendBanner />
           {children}
         </main>
       </div>
+
+      {/* 回到顶部悬浮按钮 */}
+      {showScrollTop && (
+        <Button
+          isIconOnly
+          color="primary"
+          variant="shadow"
+          radius="full"
+          onPress={scrollToTop}
+          aria-label="回到顶部"
+          title="回到顶部"
+          className="fixed bottom-6 right-6 z-30"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+          </svg>
+        </Button>
+      )}
 
       {/* 修改密码弹窗 */}
       <Modal 
