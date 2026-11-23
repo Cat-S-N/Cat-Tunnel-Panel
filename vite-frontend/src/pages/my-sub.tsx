@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card, CardBody } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Input } from "@heroui/input";
@@ -27,6 +27,8 @@ export default function MySubPage() {
   const [quantumultXEnabled, setQuantumultXEnabled] = useState<boolean>(false);
   const [account, setAccount] = useState<any>(null); // 账号到期 / 账号总流量 / 是否被停用
   const [loading, setLoading] = useState(true);
+  const [lineTypeFilter, setLineTypeFilter] = useState<"all" | "direct" | "relay">("all");
+  const [searchKeyword, setSearchKeyword] = useState("");
 
   // 订阅链接开头:管理员设了「订阅地址(给车友的)」就用它,没设 = 网页地址(和以前一样)。
   // 和线路一起在 load() 里取,线路出来时地址已经是对的
@@ -81,6 +83,46 @@ export default function MySubPage() {
   const totalUsed = lines.reduce((n: number, l: any) => n + (l.flow || 0), 0);
   const totalQuotaGb = lines.reduce((n: number, l: any) => n + (l.quotaGb > 0 ? l.quotaGb : 0), 0);
   const unlimitedCount = lines.filter((l: any) => !(l.quotaGb > 0)).length;
+
+  const lineStats = useMemo(() => {
+    let directCount = 0;
+    let relayCount = 0;
+    let totalProtocols = 0;
+    for (const l of lines) {
+      if (l.type === "relay") relayCount += 1;
+      else directCount += 1;
+      totalProtocols += Number(l.protocolCount || 0);
+    }
+    return { total: lines.length, directCount, relayCount, totalProtocols };
+  }, [lines]);
+
+  const filteredLines = useMemo(() => {
+    const kw = searchKeyword.trim().toLowerCase();
+    return lines.filter((ln: any) => {
+      const isRelay = ln.type === "relay";
+      if (lineTypeFilter === "direct" && isRelay) return false;
+      if (lineTypeFilter === "relay" && !isRelay) return false;
+      if (!kw) return true;
+      const fields = [ln.nodeName, ln.landingName];
+      return fields.some((f) => f && String(f).toLowerCase().includes(kw));
+    });
+  }, [lines, lineTypeFilter, searchKeyword]);
+
+  const handleCopyFilteredLinks = async () => {
+    const urls = filteredLines
+      .map((ln: any) => (ln.subToken ? subUrl(ln.subToken) : ""))
+      .filter(Boolean);
+    if (urls.length === 0) {
+      toast.error("当前筛选下没有可复制的订阅链接");
+      return;
+    }
+    const ok = await copyTextToClipboard(urls.join("\n"));
+    if (ok) {
+      toast.success(`已复制 ${urls.length} 条订阅链接`);
+    } else {
+      toast.error("复制失败");
+    }
+  };
 
   return (
     <div className="p-4 space-y-4 max-w-4xl">
@@ -199,7 +241,82 @@ export default function MySubPage() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {lines.map((ln: any, idx: number) => {
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Chip size="sm" variant="flat" color="default">总线路：{lineStats.total}</Chip>
+              <Chip size="sm" variant="flat" color="primary">直连：{lineStats.directCount}</Chip>
+              <Chip size="sm" variant="flat" color="warning">中转：{lineStats.relayCount}</Chip>
+              <Chip size="sm" variant="flat" color="secondary">总协议：{lineStats.totalProtocols}</Chip>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                size="sm"
+                className="w-48"
+                placeholder="搜索节点 / 落地名称"
+                isClearable
+                value={searchKeyword}
+                onValueChange={setSearchKeyword}
+                onClear={() => setSearchKeyword("")}
+              />
+              <div className="flex items-center gap-1">
+                {(
+                  [
+                    { key: "all", label: "全部" },
+                    { key: "direct", label: "直连" },
+                    { key: "relay", label: "中转" },
+                  ] as const
+                ).map((item) => (
+                  <Button
+                    key={item.key}
+                    size="sm"
+                    variant={lineTypeFilter === item.key ? "solid" : "flat"}
+                    color={
+                      lineTypeFilter === item.key
+                        ? item.key === "relay"
+                          ? "warning"
+                          : "primary"
+                        : "default"
+                    }
+                    onPress={() => setLineTypeFilter(item.key)}
+                  >
+                    {item.label}
+                  </Button>
+                ))}
+              </div>
+              <Button
+                size="sm"
+                color="primary"
+                variant="flat"
+                isDisabled={filteredLines.length === 0}
+                onPress={handleCopyFilteredLinks}
+              >
+                📋 一键复制当前筛选全部链接
+              </Button>
+            </div>
+          </div>
+
+          {filteredLines.length === 0 ? (
+            <Card>
+              <CardBody className="text-center py-10 space-y-3">
+                <div className="text-sm font-medium text-foreground">无匹配线路</div>
+                <div className="text-xs text-default-500">当前筛选或搜索条件下没有匹配的线路</div>
+                <div>
+                  <Button
+                    size="sm"
+                    color="primary"
+                    variant="flat"
+                    onPress={() => {
+                      setLineTypeFilter("all");
+                      setSearchKeyword("");
+                    }}
+                  >
+                    重置筛选
+                  </Button>
+                </div>
+              </CardBody>
+            </Card>
+          ) : (
+            filteredLines.map((ln: any, idx: number) => {
             const url = subUrl(ln.subToken);
             const isRelay = ln.type === "relay";
             const used = ln.flow || 0;
@@ -263,6 +380,17 @@ export default function MySubPage() {
                     >
                       复制订阅链接
                     </Button>
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      onPress={async () => {
+                        (await copyTextToClipboard(clashUrl(ln.subToken)))
+                          ? toast.success("已复制 Clash / Mihomo 订阅链接")
+                          : toast.error("复制失败,请手动选中");
+                      }}
+                    >
+                      Clash 版
+                    </Button>
                     <SubQrToggle url={url} />
                     {/* 删除只给管理员看。这一页车友也在用,而删线路是不可逆的 ——
                         端口会释放,以后要再用得管理员重新分配、重新发一遍链接。
@@ -299,7 +427,7 @@ export default function MySubPage() {
                 </CardBody>
               </Card>
             );
-          })}
+          }))}
         </div>
       )}
 
@@ -313,10 +441,15 @@ export default function MySubPage() {
           <div className="font-semibold">怎么用</div>
           <div>复制上面任意一条订阅链接,在客户端里添加订阅:</div>
           <ul className="list-disc pl-5 space-y-1 text-default-500">
-            <li><b>v2rayN(Windows)</b>:订阅 → 订阅分组设置 → 添加 → 粘贴地址 → 确定 → 更新订阅</li>
-            <li><b>小火箭 / Shadowrocket(iOS)</b>:右上角 + → 类型选「Subscribe」→ 粘贴地址</li>
-            <li><b>v2rayNG(安卓)</b>:左侧菜单 → 订阅分组设置 → + → 粘贴地址 → 更新订阅</li>
+            <li><b>v2rayN (Windows)</b>：订阅分组 → 订阅分组设置 → 添加 → 粘贴通用订阅地址 → 确定 → 更新订阅</li>
+            <li><b>Clash Verge Rev / Mihomo Party (桌面端)</b>：订阅 → 新建/导入 → 粘贴「Clash / Mihomo 版」链接 → 下载并启用</li>
+            <li><b>小火箭 / Shadowrocket (iOS)</b>：右上角 + → 类型选「Subscribe」→ 粘贴通用订阅地址 → 完成</li>
+            <li><b>v2rayNG (安卓)</b>：左侧菜单 → 订阅分组设置 → + → 粘贴通用订阅地址 → 更新订阅</li>
+            <li><b>Sing-box (全平台)</b>：配置 / Profiles → 新建远程配置 → 粘贴订阅地址并启用自动更新</li>
           </ul>
+          <div className="text-xs text-default-500">
+            <b>更新频率建议：</b>建议在客户端开启「自动更新订阅」（推荐间隔 12～24 小时），管理员新增或调整协议后可及时自动同步。
+          </div>
           <div className="text-xs text-default-400">
             每条线路是独立的套餐:流量、到期各算各的,一条用完不影响另一条;如果账号设了总流量,所有线路的用量加起来算,用完了所有线路一起停。管理员在某条线路上加了新协议,你更新订阅就自动出现。
           </div>
