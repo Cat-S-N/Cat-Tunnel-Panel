@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Input } from "@heroui/input";
@@ -84,6 +84,9 @@ export default function TunnelPage() {
   // 搭协议自动建的隧道默认收起来:用户没手工建过,看到它们只会困惑
   const [showProtocolTunnels, setShowProtocolTunnels] = useState(false);
   const [nodes, setNodes] = useState<Node[]>([]);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
+  const [typeFilter, setTypeFilter] = useState<'all' | 'port' | 'tunnel'>('all');
+  const [searchKeyword, setSearchKeyword] = useState('');
   
   // 模态框状态
   const [modalOpen, setModalOpen] = useState(false);
@@ -430,11 +433,132 @@ export default function TunnelPage() {
   const protocolTunnelCount = tunnels.filter(t => t.protocolManaged).length;
   const visibleTunnels = showProtocolTunnels ? tunnels : tunnels.filter(t => !t.protocolManaged);
 
+  const nodeNameMap = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const n of nodes) {
+      map.set(n.id, n.name);
+    }
+    return map;
+  }, [nodes]);
+
+  const tunnelStats = useMemo(() => {
+    let enabled = 0;
+    let disabled = 0;
+    let portForward = 0;
+    let tunnelForward = 0;
+    for (const t of visibleTunnels) {
+      if (t.status === 1) enabled += 1;
+      else disabled += 1;
+      if (t.type === 1) portForward += 1;
+      else if (t.type === 2) tunnelForward += 1;
+    }
+    return {
+      total: visibleTunnels.length,
+      enabled,
+      disabled,
+      portForward,
+      tunnelForward,
+    };
+  }, [visibleTunnels]);
+
+  const filteredTunnels = useMemo(() => {
+    const kw = searchKeyword.trim().toLowerCase();
+    return visibleTunnels.filter((t) => {
+      if (statusFilter === 'enabled' && t.status !== 1) return false;
+      if (statusFilter === 'disabled' && t.status === 1) return false;
+      if (typeFilter === 'port' && t.type !== 1) return false;
+      if (typeFilter === 'tunnel' && t.type !== 2) return false;
+      if (!kw) return true;
+      const inName = nodeNameMap.get(t.inNodeId);
+      const outName = t.outNodeId ? nodeNameMap.get(t.outNodeId) : undefined;
+      const fields = [t.name, t.inIp, t.outIp, inName, outName];
+      return fields.some((f) => f && f.toLowerCase().includes(kw));
+    });
+  }, [visibleTunnels, statusFilter, typeFilter, searchKeyword, nodeNameMap]);
+
   return (
 
       <div className="px-3 lg:px-6 py-8">
         {/* 页面头部 */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-col gap-3 mb-6">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Chip size="sm" variant="flat" color="default">
+                总隧道：{tunnelStats.total}
+              </Chip>
+              <Chip size="sm" variant="flat" color="success">
+                启用：{tunnelStats.enabled}
+              </Chip>
+              <Chip size="sm" variant="flat" color={tunnelStats.disabled > 0 ? "danger" : "default"}>
+                禁用：{tunnelStats.disabled}
+              </Chip>
+              <Chip size="sm" variant="flat" color="primary">
+                端口转发：{tunnelStats.portForward}
+              </Chip>
+              <Chip size="sm" variant="flat" color="secondary">
+                隧道转发：{tunnelStats.tunnelForward}
+              </Chip>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-1">
+                {(
+                  [
+                    { key: 'all', label: '全部' },
+                    { key: 'enabled', label: '启用' },
+                    { key: 'disabled', label: '禁用' },
+                  ] as const
+                ).map((item) => (
+                  <Button
+                    key={item.key}
+                    size="sm"
+                    variant={statusFilter === item.key ? 'solid' : 'flat'}
+                    color={
+                      statusFilter === item.key
+                        ? item.key === 'enabled'
+                          ? 'success'
+                          : item.key === 'disabled'
+                          ? 'danger'
+                          : 'primary'
+                        : 'default'
+                    }
+                    onPress={() => setStatusFilter(item.key)}
+                  >
+                    {item.label}
+                  </Button>
+                ))}
+              </div>
+              <div className="flex items-center gap-1">
+                {(
+                  [
+                    { key: 'all', label: '全部类型' },
+                    { key: 'port', label: '端口转发' },
+                    { key: 'tunnel', label: '隧道转发' },
+                  ] as const
+                ).map((item) => (
+                  <Button
+                    key={item.key}
+                    size="sm"
+                    variant={typeFilter === item.key ? 'solid' : 'flat'}
+                    color={typeFilter === item.key ? 'secondary' : 'default'}
+                    onPress={() => setTypeFilter(item.key)}
+                  >
+                    {item.label}
+                  </Button>
+                ))}
+              </div>
+              <Input
+                size="sm"
+                className="w-56"
+                placeholder="搜索名称 / 节点 / IP"
+                isClearable
+                value={searchKeyword}
+                onValueChange={setSearchKeyword}
+                onClear={() => setSearchKeyword('')}
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between">
         <div className="flex-1 min-w-0">
           {protocolTunnelCount > 0 && (
             <div className="text-xs text-default-500 flex items-center gap-2 flex-wrap">
@@ -466,12 +590,50 @@ export default function TunnelPage() {
               新增
             </Button>
 
+          </div>
         </div>
 
         {/* 隧道卡片网格 */}
-        {visibleTunnels.length > 0 ? (
+        {visibleTunnels.length === 0 ? (
+          <Card className="shadow-sm border border-gray-200 dark:border-gray-700">
+            <CardBody className="text-center py-16">
+              <div className="flex flex-col items-center gap-4">
+                <div className="w-16 h-16 bg-default-100 rounded-full flex items-center justify-center">
+                  <svg className="w-8 h-8 text-default-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-foreground">暂无隧道配置</h3>
+                  <p className="text-default-500 text-sm mt-1">还没有创建任何隧道配置，点击上方按钮开始创建</p>
+                </div>
+              </div>
+            </CardBody>
+          </Card>
+        ) : filteredTunnels.length === 0 ? (
+          <Card className="shadow-sm border border-gray-200 dark:border-gray-700">
+            <CardBody className="text-center py-14">
+              <div className="flex flex-col items-center gap-3">
+                <h3 className="text-base font-semibold text-foreground">无匹配隧道</h3>
+                <p className="text-default-500 text-sm">当前筛选或搜索条件下没有匹配的隧道</p>
+                <Button
+                  size="sm"
+                  color="primary"
+                  variant="flat"
+                  onPress={() => {
+                    setStatusFilter('all');
+                    setTypeFilter('all');
+                    setSearchKeyword('');
+                  }}
+                >
+                  重置筛选
+                </Button>
+              </div>
+            </CardBody>
+          </Card>
+        ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-            {visibleTunnels.map((tunnel) => {
+            {filteredTunnels.map((tunnel) => {
               const statusDisplay = getStatusDisplay(tunnel.status);
               const typeDisplay = getTypeDisplay(tunnel.type);
               
@@ -606,23 +768,6 @@ export default function TunnelPage() {
               );
             })}
           </div>
-        ) : (
-          /* 空状态 */
-          <Card className="shadow-sm border border-gray-200 dark:border-gray-700">
-            <CardBody className="text-center py-16">
-              <div className="flex flex-col items-center gap-4">
-                <div className="w-16 h-16 bg-default-100 rounded-full flex items-center justify-center">
-                  <svg className="w-8 h-8 text-default-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" />
-                  </svg>
-                </div>
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground">暂无隧道配置</h3>
-                  <p className="text-default-500 text-sm mt-1">还没有创建任何隧道配置，点击上方按钮开始创建</p>
-                </div>
-              </div>
-            </CardBody>
-          </Card>
         )}
 
         {/* 新增/编辑模态框 */}
