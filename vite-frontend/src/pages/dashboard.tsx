@@ -2,6 +2,7 @@ import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Modal, ModalContent, ModalHeader, ModalBody } from "@heroui/modal";
 import { useState, useEffect } from "react";
+import { Input } from "@heroui/input";
 import toast from 'react-hot-toast';
 import { copyTextToClipboard } from "@/utils/clipboard";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
@@ -69,6 +70,7 @@ export default function DashboardPage() {
   const [addressModalOpen, setAddressModalOpen] = useState(false);
   const [addressModalTitle, setAddressModalTitle] = useState('');
   const [addressList, setAddressList] = useState<AddressItem[]>([]);
+  const [forwardSearch, setForwardSearch] = useState('');
 
   // 检查有效期通知
   const checkExpirationNotifications = (userInfo: UserInfo, tunnels: UserTunnel[]) => {
@@ -412,7 +414,12 @@ export default function DashboardPage() {
 
   const groupedForwards = () => {
     const groups: { [key: string]: { tunnelName: string; forwards: Forward[] } } = {};
+    const kw = forwardSearch.trim().toLowerCase();
     forwardList.forEach(forward => {
+      if (kw) {
+        const fields = [forward.name, forward.tunnelName, forward.inIp, String(forward.inPort || ''), forward.remoteAddr];
+        if (!fields.some(f => f && String(f).toLowerCase().includes(kw))) return;
+      }
       const tunnelName = forward.tunnelName || '未知隧道';
       if (!groups[tunnelName]) {
         groups[tunnelName] = {
@@ -787,6 +794,15 @@ export default function DashboardPage() {
                              <div className="space-y-3">
                  {userTunnels.map((tunnel) => {
                    const tunnelExpStatus = getExpStatus(tunnel.expTime);
+                   const tunnelFlowPct = calculateTunnelFlowPercentage(tunnel);
+                   const isUnlimitedFlow = tunnel.flow === 99999 || !tunnel.flow || tunnel.flow <= 0;
+                   const flowBadgeClass = isUnlimitedFlow
+                     ? 'bg-default-100 text-default-600'
+                     : tunnelFlowPct >= 90
+                     ? 'bg-danger-100 dark:bg-danger-500/20 text-danger-700 dark:text-danger-300'
+                     : tunnelFlowPct >= 70
+                     ? 'bg-warning-100 dark:bg-warning-500/20 text-warning-700 dark:text-warning-300'
+                     : 'bg-success-100 dark:bg-success-500/20 text-success-700 dark:text-success-300';
                    return (
                      <div key={tunnel.id} className="border border-gray-200 dark:border-default-100 rounded-lg p-3 lg:p-4 hover:shadow-md transition-shadow">
                        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-3">
@@ -798,6 +814,9 @@ export default function DashboardPage() {
                              </span>
                              <span className={`px-2 py-1 rounded-md text-xs font-medium border ${tunnelExpStatus.bg} ${tunnelExpStatus.color}`}>
                                {tunnelExpStatus.text}
+                             </span>
+                             <span className={`px-2 py-1 rounded-md text-xs font-medium ${flowBadgeClass}`}>
+                               {isUnlimitedFlow ? '无限流量' : `已用 ${tunnelFlowPct.toFixed(1)}%`}
                              </span>
                              {(tunnel.flowResetTime !== undefined && tunnel.flowResetTime !== null) && (
                                <span className="text-xs text-default-500">
@@ -845,23 +864,43 @@ export default function DashboardPage() {
          {isAdmin && (
          <Card className="border border-gray-200 dark:border-default-200 shadow-md">
            <CardHeader className="pb-3">
-             <div className="flex items-center gap-2">
-               <svg className="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20">
-                 <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
-               </svg>
-               <h2 className="text-lg lg:text-xl font-semibold text-foreground">转发配置</h2>
-               <span className="px-2 py-1 bg-default-100 dark:bg-default-50 text-default-600 rounded-full text-xs">
-                 {forwardList.length}
-               </span>
+             <div className="flex items-center justify-between flex-wrap gap-2 w-full">
+               <div className="flex items-center gap-2">
+                 <svg className="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20">
+                   <path fillRule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clipRule="evenodd" />
+                 </svg>
+                 <h2 className="text-lg lg:text-xl font-semibold text-foreground">转发配置</h2>
+                 <span className="px-2 py-1 bg-default-100 dark:bg-default-50 text-default-600 rounded-full text-xs">
+                   {forwardList.length}
+                 </span>
+               </div>
+               {forwardList.length > 0 && (
+                 <Input
+                   size="sm"
+                   className="w-full sm:w-60"
+                   placeholder="搜索名称 / 隧道 / 端口 / 目标"
+                   isClearable
+                   value={forwardSearch}
+                   onValueChange={setForwardSearch}
+                   onClear={() => setForwardSearch('')}
+                 />
+               )}
              </div>
            </CardHeader>
            <CardBody className="pt-0">
             {groupedForwards().length === 0 ? (
-              <div className="text-center py-12">
-                <svg className="w-12 h-12 text-default-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="text-center py-12 space-y-3">
+                <svg className="w-12 h-12 text-default-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
                 </svg>
-                <p className="text-default-500">暂无转发配置</p>
+                <p className="text-default-500">
+                  {forwardList.length > 0 && forwardSearch.trim() ? '无匹配转发配置' : '暂无转发配置'}
+                </p>
+                {forwardList.length > 0 && forwardSearch.trim() && (
+                  <Button size="sm" color="primary" variant="flat" onPress={() => setForwardSearch('')}>
+                    重置搜索
+                  </Button>
+                )}
               </div>
             ) : (
                              <div className="space-y-4">
