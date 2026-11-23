@@ -2,14 +2,23 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/favicon.svg" />
     
     <title>Cat Tunnel Panel</title>
     <script>
-      // 防止暗黑模式闪烁：在页面加载前立即应用系统主题
+      // 防止暗黑模式闪烁：在页面加载前立即应用初始主题
       (function() {
-        // 立即检测系统主题并应用
-        const isDarkMode = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var storedMode = null;
+        try {
+          storedMode = localStorage.getItem('pixel_mode');
+        } catch (e) {}
+
+        var isDarkMode = storedMode === 'dark'
+          ? true
+          : storedMode === 'light'
+          ? false
+          : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
         
         // 立即设置主题类，避免闪烁
         if (isDarkMode) {
@@ -20,9 +29,16 @@
           document.documentElement.style.colorScheme = 'light';
         }
         
-        // 监听系统主题变化
+        // 监听系统主题变化（仅当处于像素黑白灰主题且未手动锁定明暗模式时跟随系统）
         if (window.matchMedia) {
           window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+            var currentSkin = document.documentElement.getAttribute('data-skin');
+            var manualMode = null;
+            try {
+              manualMode = localStorage.getItem('pixel_mode');
+            } catch (err) {}
+            if (currentSkin && currentSkin !== 'pixel') return;
+            if (manualMode === 'light' || manualMode === 'dark') return;
             if (e.matches) {
               document.documentElement.classList.add('dark');
               document.documentElement.style.colorScheme = 'dark';
@@ -151,7 +167,6 @@
       content="viewport-fit=cover, width=device-width, initial-scale=1.0, user-scalable=no"
       name="viewport"
     />
-    <link href="/favicon.ico" rel="icon" />
   </head>
   <body>
     <div id="root"></div>

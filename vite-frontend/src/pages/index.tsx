@@ -8,6 +8,7 @@ import axios from 'axios';
 import { isWebViewFunc } from '@/utils/panel';
 import { siteConfig } from '@/config/site';
 import { title } from "@/components/primitives";
+import { PixelCatLogo } from "@/components/pixel-cat-logo";
 import DefaultLayout from "@/layouts/default";
 import { login, LoginData, checkCaptcha } from "@/api";
 import "@/utils/tac.css";
@@ -275,6 +276,7 @@ export default function IndexPage() {
         <div className="w-full max-w-md px-4 sm:px-0">
           <Card className="w-full">
             <CardHeader className="pb-0 pt-6 px-6 flex-col items-center">
+              <PixelCatLogo size={48} className="mb-2" />
               <h1 className={title({ size: "sm" })}>登陆</h1>
               <p className="text-small text-default-500 mt-2">请输入您的账号信息</p>
             </CardHeader>

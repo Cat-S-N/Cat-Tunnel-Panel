@@ -7,6 +7,8 @@ import { Progress } from "@heroui/progress";
 import { Spinner } from "@heroui/spinner";
 import Network from "@/api/network";
 import { fmtBytes, latencyColor } from "@/pages/monitor";
+import { PixelCatLogo } from "@/components/pixel-cat-logo";
+import SkinPicker from "@/components/skin-picker";
 
 type StatusFilter = "all" | "online" | "offline" | "high_load";
 type SortMode = "default" | "cpu_desc" | "mem_desc" | "traffic_desc";
@@ -78,11 +80,19 @@ export default function StatusPage() {
   return (
     <div className="min-h-screen px-4 py-8 max-w-6xl mx-auto">
       <div className="mb-6 space-y-3">
-        <div>
-          <h1 className="text-2xl font-bold">{data.title}</h1>
-          <p className="text-sm text-default-500 mt-1">
-            每 30 秒自动刷新 · 更新于 {new Date(data.updatedAt).toLocaleTimeString()}
-          </p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <PixelCatLogo size={34} className="shrink-0" />
+            <div className="min-w-0">
+              <h1 className="text-2xl font-bold truncate">{data.title}</h1>
+              <p className="text-sm text-default-500 mt-1">
+                每 30 秒自动刷新 · 更新于 {new Date(data.updatedAt).toLocaleTimeString()}
+              </p>
+            </div>
+          </div>
+          <div className="shrink-0">
+            <SkinPicker />
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-2">

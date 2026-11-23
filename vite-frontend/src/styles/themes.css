@@ -1,10 +1,377 @@
-/* P2 多主题:每套皮肤 = 挂在 <html> 上的一层固定渐变背景。
-   用 !important 压过 HeroUI 的暗底,并强制 body/#root 透明,让渐变透出来。
-   切皮肤 = 换 <html> 的类(applySkin)。 */
+/* 多主题(皮肤)样式表：
+   - 保留全部现有渐变/深空皮肤；
+   - 默认皮肤「像素黑白灰」严格限定在 html[data-skin="pixel"] 作用域内，绝不影响其他皮肤。 */
 
-/* body / #root 一律透明,别用不透明底盖住 html 的渐变 */
+/* body / #root 一律透明,别用不透明底盖住 html 的背景 */
 html[class] body,
 html[class] #root { background-color: transparent !important; }
+
+/* ==========================================================================
+   像素黑白灰主题（默认主题，支持浅色 / 暗色双模式）
+   ========================================================================== */
+html[data-skin="pixel"] {
+  --pixel-bg: #f5f5f5;
+  --pixel-dot: rgba(17, 17, 17, 0.12);
+  --pixel-surface: #ffffff;
+  --pixel-surface-alt: #ececec;
+  --pixel-surface-hover: #e5e5e5;
+  --pixel-border: #171717;
+  --pixel-border-muted: #525252;
+  --pixel-border-subtle: #d4d4d4;
+  --pixel-shadow: #171717;
+  --pixel-text: #111111;
+  --pixel-text-muted: #525252;
+  --pixel-invert-bg: #171717;
+  --pixel-invert-fg: #ffffff;
+  --pixel-mono-font: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+
+  /* Toast 像素黑白灰配色 */
+  --toaster-bg: #ffffff;
+  --toaster-color: #111111;
+  --toaster-border: #171717;
+
+  /* HeroUI 浅色黑白灰单色系色板（HSL 三元组） */
+  --heroui-background: 0 0% 96%;
+  --heroui-foreground: 0 0% 7%;
+  --heroui-content1: 0 0% 100%;
+  --heroui-content2: 0 0% 96%;
+  --heroui-content3: 0 0% 90%;
+  --heroui-content4: 0 0% 83%;
+  --heroui-divider: 0 0% 15%;
+  --heroui-focus: 0 0% 9%;
+
+  --heroui-default: 0 0% 88%;
+  --heroui-default-foreground: 0 0% 9%;
+  --heroui-default-50: 0 0% 98%;
+  --heroui-default-100: 0 0% 94%;
+  --heroui-default-200: 0 0% 88%;
+  --heroui-default-300: 0 0% 80%;
+  --heroui-default-400: 0 0% 60%;
+  --heroui-default-500: 0 0% 42%;
+  --heroui-default-600: 0 0% 30%;
+  --heroui-default-700: 0 0% 22%;
+  --heroui-default-800: 0 0% 14%;
+  --heroui-default-900: 0 0% 8%;
+
+  --heroui-primary: 0 0% 9%;
+  --heroui-primary-foreground: 0 0% 100%;
+  --heroui-primary-50: 0 0% 96%;
+  --heroui-primary-100: 0 0% 90%;
+  --heroui-primary-200: 0 0% 80%;
+  --heroui-primary-300: 0 0% 64%;
+  --heroui-primary-400: 0 0% 45%;
+  --heroui-primary-500: 0 0% 26%;
+  --heroui-primary-600: 0 0% 14%;
+  --heroui-primary-700: 0 0% 9%;
+  --heroui-primary-800: 0 0% 6%;
+  --heroui-primary-900: 0 0% 4%;
+
+  --heroui-secondary: 0 0% 28%;
+  --heroui-secondary-foreground: 0 0% 100%;
+  --heroui-secondary-50: 0 0% 95%;
+  --heroui-secondary-100: 0 0% 88%;
+  --heroui-secondary-200: 0 0% 76%;
+  --heroui-secondary-300: 0 0% 58%;
+  --heroui-secondary-400: 0 0% 42%;
+  --heroui-secondary-500: 0 0% 30%;
+  --heroui-secondary-600: 0 0% 22%;
+  --heroui-secondary-700: 0 0% 16%;
+  --heroui-secondary-800: 0 0% 11%;
+  --heroui-secondary-900: 0 0% 7%;
+
+  /* 像素硬边圆角变量 */
+  --heroui-radius-small: 0px;
+  --heroui-radius-medium: 2px;
+  --heroui-radius-large: 2px;
+
+  /* 极淡像素点阵底纹，保证正文与表格高清晰度 */
+  background-color: var(--pixel-bg) !important;
+  background-image: radial-gradient(var(--pixel-dot) 1px, transparent 1px) !important;
+  background-size: 16px 16px !important;
+  background-attachment: fixed !important;
+}
+
+html[data-skin="pixel"].dark {
+  --pixel-bg: #0d0d0d;
+  --pixel-dot: rgba(250, 250, 250, 0.11);
+  --pixel-surface: #161616;
+  --pixel-surface-alt: #222222;
+  --pixel-surface-hover: #2b2b2b;
+  --pixel-border: #d4d4d4;
+  --pixel-border-muted: #737373;
+  --pixel-border-subtle: #333333;
+  --pixel-shadow: #000000;
+  --pixel-text: #fafafa;
+  --pixel-text-muted: #a3a3a3;
+  --pixel-invert-bg: #fafafa;
+  --pixel-invert-fg: #0d0d0d;
+
+  --toaster-bg: #161616;
+  --toaster-color: #fafafa;
+  --toaster-border: #d4d4d4;
+
+  /* HeroUI 暗色黑白灰单色系色板 */
+  --heroui-background: 0 0% 5%;
+  --heroui-foreground: 0 0% 98%;
+  --heroui-content1: 0 0% 9%;
+  --heroui-content2: 0 0% 13%;
+  --heroui-content3: 0 0% 18%;
+  --heroui-content4: 0 0% 24%;
+  --heroui-divider: 0 0% 26%;
+  --heroui-focus: 0 0% 96%;
+
+  --heroui-default: 0 0% 20%;
+  --heroui-default-foreground: 0 0% 96%;
+  --heroui-default-50: 0 0% 11%;
+  --heroui-default-100: 0 0% 15%;
+  --heroui-default-200: 0 0% 21%;
+  --heroui-default-300: 0 0% 30%;
+  --heroui-default-400: 0 0% 52%;
+  --heroui-default-500: 0 0% 66%;
+  --heroui-default-600: 0 0% 78%;
+  --heroui-default-700: 0 0% 86%;
+  --heroui-default-800: 0 0% 92%;
+  --heroui-default-900: 0 0% 98%;
+
+  --heroui-primary: 0 0% 96%;
+  --heroui-primary-foreground: 0 0% 6%;
+  --heroui-primary-50: 0 0% 12%;
+  --heroui-primary-100: 0 0% 18%;
+  --heroui-primary-200: 0 0% 28%;
+  --heroui-primary-300: 0 0% 88%;
+  --heroui-primary-400: 0 0% 92%;
+  --heroui-primary-500: 0 0% 96%;
+  --heroui-primary-600: 0 0% 82%;
+  --heroui-primary-700: 0 0% 88%;
+  --heroui-primary-800: 0 0% 94%;
+  --heroui-primary-900: 0 0% 98%;
+
+  --heroui-secondary: 0 0% 78%;
+  --heroui-secondary-foreground: 0 0% 6%;
+  --heroui-secondary-50: 0 0% 12%;
+  --heroui-secondary-100: 0 0% 18%;
+  --heroui-secondary-200: 0 0% 28%;
+  --heroui-secondary-300: 0 0% 76%;
+  --heroui-secondary-400: 0 0% 82%;
+  --heroui-secondary-500: 0 0% 86%;
+  --heroui-secondary-600: 0 0% 90%;
+  --heroui-secondary-700: 0 0% 93%;
+  --heroui-secondary-800: 0 0% 96%;
+  --heroui-secondary-900: 0 0% 98%;
+
+  background-color: var(--pixel-bg) !important;
+  background-image: radial-gradient(var(--pixel-dot) 1px, transparent 1px) !important;
+  background-size: 16px 16px !important;
+  background-attachment: fixed !important;
+}
+
+/* 让 DefaultLayout / H5Layout 的页面背景透明，透出像素点阵底纹 */
+html[data-skin="pixel"] #root > div.min-h-screen,
+html[data-skin="pixel"] #root > div.min-h-screen > main {
+  background-color: transparent !important;
+}
+
+/* 侧边栏与顶栏：去除毛玻璃，采用清晰 2px 像素实线边框与高对比单色表面 */
+html[data-skin="pixel"] aside {
+  background-color: var(--pixel-surface) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-right: 2px solid var(--pixel-border) !important;
+  box-shadow: none !important;
+}
+
+html[data-skin="pixel"] header,
+html[data-skin="pixel"] nav[class*="border-t"] {
+  background-color: var(--pixel-surface) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-color: var(--pixel-border) !important;
+  box-shadow: none !important;
+}
+
+html[data-skin="pixel"] header {
+  border-bottom: 2px solid var(--pixel-border) !important;
+}
+
+html[data-skin="pixel"] nav[class*="border-t"] {
+  border-top: 2px solid var(--pixel-border) !important;
+}
+
+/* 侧边栏导航项：高对比黑白灰反色激活态 + 像素硬边 */
+html[data-skin="pixel"] aside nav ul button {
+  border-radius: 2px !important;
+  border: 2px solid transparent;
+  transition: background-color 80ms steps(2), color 80ms steps(2), transform 80ms steps(2);
+}
+
+html[data-skin="pixel"] aside nav ul button:hover {
+  background-color: var(--pixel-surface-alt) !important;
+  border-color: var(--pixel-border-muted);
+}
+
+html[data-skin="pixel"] aside nav ul button.bg-primary-100 {
+  background-color: var(--pixel-invert-bg) !important;
+  color: var(--pixel-invert-fg) !important;
+  border: 2px solid var(--pixel-border) !important;
+  box-shadow: 3px 3px 0 0 var(--pixel-shadow) !important;
+}
+
+html[data-skin="pixel"].dark aside nav ul button.bg-primary-100 {
+  box-shadow: 3px 3px 0 0 #000000 !important;
+}
+
+/* 卡片（HeroUI Card 与通用面板卡片）：2px 像素边框 + 4px 硬边偏移阴影 */
+html[data-skin="pixel"] .bg-content1:not([role="dialog"]):not([data-slot="content"]):not([data-slot="wrapper"]) {
+  background-color: var(--pixel-surface) !important;
+  border: 2px solid var(--pixel-border) !important;
+  border-radius: 2px !important;
+  box-shadow: 4px 4px 0 0 var(--pixel-shadow) !important;
+}
+
+/* 弹窗 Modal、下拉菜单 Dropdown、浮层 Popover */
+html[data-skin="pixel"] [role="dialog"],
+html[data-skin="pixel"] [data-slot="content"] {
+  background-color: var(--pixel-surface) !important;
+  border: 2px solid var(--pixel-border) !important;
+  border-radius: 2px !important;
+  box-shadow: 6px 6px 0 0 var(--pixel-shadow) !important;
+}
+
+html[data-skin="pixel"] [data-slot="backdrop"] {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  background-color: rgba(0, 0, 0, 0.55) !important;
+}
+
+/* 表格容器与表头：像素方框 + 等宽数值排版 */
+html[data-skin="pixel"] [data-slot="wrapper"]:has(table) {
+  background-color: var(--pixel-surface) !important;
+  border: 2px solid var(--pixel-border) !important;
+  border-radius: 2px !important;
+  box-shadow: 4px 4px 0 0 var(--pixel-shadow) !important;
+}
+
+html[data-skin="pixel"] table th {
+  border-radius: 0 !important;
+  background-color: var(--pixel-surface-alt) !important;
+  color: var(--pixel-text) !important;
+  border-bottom: 2px solid var(--pixel-border) !important;
+  font-family: var(--pixel-mono-font);
+  letter-spacing: 0.02em;
+}
+
+html[data-skin="pixel"] table td {
+  border-bottom: 1px solid var(--pixel-border-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 输入框、文本域、下拉选择器触发器 */
+html[data-skin="pixel"] [data-slot="input-wrapper"],
+html[data-skin="pixel"] [data-slot="trigger"] {
+  border-radius: 2px !important;
+  border: 2px solid var(--pixel-border-muted) !important;
+  background-color: var(--pixel-surface) !important;
+  box-shadow: none !important;
+}
+
+html[data-skin="pixel"] [data-slot="input-wrapper"][data-focus="true"],
+html[data-skin="pixel"] [data-slot="input-wrapper"]:focus-within,
+html[data-skin="pixel"] [data-slot="trigger"][data-open="true"],
+html[data-skin="pixel"] [data-slot="trigger"]:focus-visible {
+  border-color: var(--pixel-border) !important;
+  box-shadow: 2px 2px 0 0 var(--pixel-shadow) !important;
+}
+
+/* 按钮：硬边圆角 + 偏移像素阴影 + 按压位移反馈 */
+html[data-skin="pixel"] button[data-slot="base"],
+html[data-skin="pixel"] a[data-slot="base"],
+html[data-skin="pixel"] button.z-0 {
+  border-radius: 2px !important;
+}
+
+html[data-skin="pixel"] button.bg-primary,
+html[data-skin="pixel"] button.bg-secondary,
+html[data-skin="pixel"] button.bg-default,
+html[data-skin="pixel"] button.border-default,
+html[data-skin="pixel"] button.border-primary,
+html[data-skin="pixel"] button.bg-primary\/20,
+html[data-skin="pixel"] button.bg-secondary\/20,
+html[data-skin="pixel"] button.bg-default\/40 {
+  border: 2px solid var(--pixel-border) !important;
+  box-shadow: 3px 3px 0 0 var(--pixel-shadow) !important;
+  transition: transform 80ms steps(2), box-shadow 80ms steps(2), background-color 80ms steps(2) !important;
+}
+
+html[data-skin="pixel"] button.bg-primary:active:not(:disabled),
+html[data-skin="pixel"] button.bg-secondary:active:not(:disabled),
+html[data-skin="pixel"] button.bg-default:active:not(:disabled),
+html[data-skin="pixel"] button.border-default:active:not(:disabled),
+html[data-skin="pixel"] button.border-primary:active:not(:disabled),
+html[data-skin="pixel"] button.bg-primary\/20:active:not(:disabled),
+html[data-skin="pixel"] button.bg-secondary\/20:active:not(:disabled),
+html[data-skin="pixel"] button.bg-default\/40:active:not(:disabled) {
+  transform: translate(2px, 2px) !important;
+  box-shadow: 1px 1px 0 0 var(--pixel-shadow) !important;
+}
+
+/* Chip 标签与状态徽章：硬边方形 + 等宽数字 */
+html[data-skin="pixel"] div[class*="rounded-full"][class*="items-center"][class*="inline-flex"],
+html[data-skin="pixel"] span[class*="rounded-full"][class*="items-center"][class*="inline-flex"] {
+  border-radius: 2px !important;
+  font-family: var(--pixel-mono-font);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 进度条：直角像素条 */
+html[data-skin="pixel"] [data-slot="track"] {
+  border-radius: 0 !important;
+  border: 1px solid var(--pixel-border-muted);
+  background-color: var(--pixel-surface-alt) !important;
+}
+
+html[data-skin="pixel"] [data-slot="indicator"] {
+  border-radius: 0 !important;
+}
+
+/* 聚焦环：高对比黑白虚线/实线外框 */
+html[data-skin="pixel"] *:focus-visible {
+  outline: 2px solid var(--pixel-border) !important;
+  outline-offset: 2px !important;
+}
+
+/* 数值、代码、按键与等宽元素统一像素等宽排版（中文正文保持清晰易读） */
+html[data-skin="pixel"] code,
+html[data-skin="pixel"] pre,
+html[data-skin="pixel"] kbd,
+html[data-skin="pixel"] .font-mono {
+  font-family: var(--pixel-mono-font) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 像素风格滚动条 */
+html[data-skin="pixel"] ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+html[data-skin="pixel"] ::-webkit-scrollbar-track {
+  background: var(--pixel-surface-alt);
+  border-left: 1px solid var(--pixel-border-subtle);
+}
+
+html[data-skin="pixel"] ::-webkit-scrollbar-thumb {
+  background: var(--pixel-border-muted);
+  border: 2px solid var(--pixel-surface-alt);
+  border-radius: 0;
+}
+
+html[data-skin="pixel"] ::-webkit-scrollbar-thumb:hover {
+  background: var(--pixel-border);
+}
+
+/* ==========================================================================
+   现有经典皮肤（完整保留，互不干扰）
+   ========================================================================== */
 
 /* 深空紫蓝:深空底 + 左上紫光 + 右下蓝光;HeroUI 的主色/卡片色只在这套皮肤里改
    (值是 HSL 三元组,HeroUI 用 hsl(var(--heroui-xxx)) 取),别的皮肤不受影响 */
