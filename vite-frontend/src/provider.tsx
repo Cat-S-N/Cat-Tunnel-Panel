@@ -29,7 +29,7 @@ export function Provider({ children }: ProvidersProps) {
             position="top-center"
             toastOptions={{
               duration: 2000,
-              className: 'dark:bg-gray-800 dark:text-white',
+              className: 'tms-toast dark:bg-gray-800 dark:text-white',
               style: {
                 background: 'var(--toaster-bg, #ffffff)',
                 color: 'var(--toaster-color, #000000)',
@@ -37,6 +37,7 @@ export function Provider({ children }: ProvidersProps) {
               },
               success: {
                 duration: 2000,
+                className: 'tms-toast tms-toast-success',
                 style: {
                   background: '#10b981',
                   color: '#ffffff',
@@ -44,6 +45,7 @@ export function Provider({ children }: ProvidersProps) {
               },
               error: {
                 duration: 2000,
+                className: 'tms-toast tms-toast-error',
                 style: {
                   background: '#ef4444',
                   color: '#ffffff',

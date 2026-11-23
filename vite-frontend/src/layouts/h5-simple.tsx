@@ -4,6 +4,7 @@ import { Button } from "@heroui/button";
 
 import { Logo } from '@/components/icons';
 import { siteConfig } from '@/config/site';
+import SkinPicker from '@/components/skin-picker';
 
 export default function H5SimpleLayout({
   children,
@@ -48,6 +49,7 @@ export default function H5SimpleLayout({
         </div>
 
         <div className="flex items-center gap-2">
+          <SkinPicker />
         </div>
       </header>
 

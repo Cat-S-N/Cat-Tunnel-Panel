@@ -309,7 +309,7 @@ export default function ProfilePage() {
                   </Button>
                 </div>
                 <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                  <span className={`px-2 py-0.5 rounded-md text-xs font-medium ${
+                  <span className={`tms-mono-badge px-2 py-0.5 rounded-md text-xs font-medium ${
                     isAdmin 
                       ? 'bg-primary-100 dark:bg-primary-500/20 text-primary-700 dark:text-primary-300' 
                       : 'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300'
@@ -378,9 +378,9 @@ export default function ProfilePage() {
                 <button
                   key={item.path}
                   onClick={() => item.href ? window.open(item.href, '_blank', 'noopener,noreferrer') : navigate(item.path)}
-                  className="flex flex-col items-center p-3 rounded-2xl bg-gray-50 dark:bg-default-100 hover:bg-gray-100 dark:hover:bg-default-200 transition-colors duration-200"
+                  className="tms-profile-grid-item flex flex-col items-center p-3 rounded-2xl bg-gray-50 dark:bg-default-100 hover:bg-gray-100 dark:hover:bg-default-200 transition-colors duration-200"
                 >
-                  <div className={`w-10 h-10 ${item.color} rounded-full flex items-center justify-center mb-2`}>
+                  <div className={`tms-profile-grid-icon w-10 h-10 ${item.color} rounded-full flex items-center justify-center mb-2`}>
                     {item.icon}
                   </div>
                   <span className="text-xs text-foreground text-center">{item.label}</span>
@@ -390,9 +390,9 @@ export default function ProfilePage() {
               {/* 修改密码 */}
               <button
                 onClick={onOpen}
-                className="flex flex-col items-center p-3 rounded-2xl bg-gray-50 dark:bg-default-100 hover:bg-gray-100 dark:hover:bg-default-200 transition-colors duration-200"
+                className="tms-profile-grid-item flex flex-col items-center p-3 rounded-2xl bg-gray-50 dark:bg-default-100 hover:bg-gray-100 dark:hover:bg-default-200 transition-colors duration-200"
               >
-                <div className="w-10 h-10 bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 rounded-full flex items-center justify-center mb-2">
+                <div className="tms-profile-grid-icon w-10 h-10 bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-400 rounded-full flex items-center justify-center mb-2">
                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M18 8a6 6 0 01-7.743 5.743L10 14l-1 1-1 1H6v2H2v-4l4.257-4.257A6 6 0 1118 8zm-6-4a1 1 0 100 2 2 2 0 012 2 1 1 0 102 0 4 4 0 00-4-4z" clipRule="evenodd" />
                   </svg>
@@ -403,9 +403,9 @@ export default function ProfilePage() {
               {/* 退出登录 */}
               <button
                 onClick={handleLogout}
-                className="flex flex-col items-center p-3 rounded-2xl bg-gray-50 dark:bg-default-100 hover:bg-gray-100 dark:hover:bg-default-200 transition-colors duration-200"
+                className="tms-profile-grid-item flex flex-col items-center p-3 rounded-2xl bg-gray-50 dark:bg-default-100 hover:bg-gray-100 dark:hover:bg-default-200 transition-colors duration-200"
               >
-                <div className="w-10 h-10 bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400 rounded-full flex items-center justify-center mb-2">
+                <div className="tms-profile-grid-icon w-10 h-10 bg-red-100 dark:bg-red-500/20 text-red-600 dark:text-red-400 rounded-full flex items-center justify-center mb-2">
                   <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M3 3a1 1 0 00-1 1v12a1 1 0 102 0V4a1 1 0 00-1-1zm10.293 9.293a1 1 0 001.414 1.414l3-3a1 1 0 000-1.414l-3-3a1 1 0 10-1.414 1.414L14.586 9H7a1 1 0 100 2h7.586l-1.293 1.293z" clipRule="evenodd" />
                   </svg>

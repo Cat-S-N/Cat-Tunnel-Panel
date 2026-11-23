@@ -7,28 +7,56 @@
     
     <title>Cat Tunnel Panel</title>
     <script>
-      // 防止暗黑模式闪烁：在页面加载前立即应用初始主题
+      // 防止首屏皮肤与暗黑模式闪烁：在页面加载前同步应用初始皮肤与明暗模式
       (function() {
+        var LEGACY_DEFAULT_SKINS = { sanyue: true, aurora: true };
+        var DARK_SKINS = {
+          sanyue: true, aurora: true, deepsea: true, cyber: true,
+          midnight: true, forest: true, lava: true, grape: true, steel: true
+        };
+        var VALID_SKINS = {
+          pixel: true, sanyue: true, aurora: true, mesh: true, deepsea: true,
+          sunrise: true, cyber: true, mint: true, midnight: true, clean: true,
+          forest: true, lava: true, sakura: true, grape: true, sand: true, steel: true
+        };
+
+        var skinId = 'pixel';
         var storedMode = null;
         try {
+          var saved = localStorage.getItem('skin');
+          if (localStorage.getItem('skinDefaultV3') !== '1') {
+            if (saved === null || LEGACY_DEFAULT_SKINS[saved]) {
+              saved = 'pixel';
+            }
+            localStorage.setItem('skinDefaultV3', '1');
+          }
+          if (saved && VALID_SKINS[saved]) {
+            skinId = saved;
+          }
           storedMode = localStorage.getItem('pixel_mode');
         } catch (e) {}
 
-        var isDarkMode = storedMode === 'dark'
-          ? true
-          : storedMode === 'light'
-          ? false
-          : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
-        
+        var html = document.documentElement;
+        html.classList.add(skinId);
+        html.setAttribute('data-skin', skinId);
+
+        var isDarkMode = skinId === 'pixel'
+          ? (storedMode === 'dark'
+              ? true
+              : storedMode === 'light'
+              ? false
+              : (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches))
+          : !!DARK_SKINS[skinId];
+
         // 立即设置主题类，避免闪烁
         if (isDarkMode) {
-          document.documentElement.classList.add('dark');
-          document.documentElement.style.colorScheme = 'dark';
+          html.classList.add('dark');
+          html.style.colorScheme = 'dark';
         } else {
-          document.documentElement.classList.remove('dark');
-          document.documentElement.style.colorScheme = 'light';
+          html.classList.remove('dark');
+          html.style.colorScheme = 'light';
         }
-        
+
         // 监听系统主题变化（仅当处于像素黑白灰主题且未手动锁定明暗模式时跟随系统）
         if (window.matchMedia) {
           window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
@@ -39,6 +67,7 @@
             } catch (err) {}
             if (currentSkin && currentSkin !== 'pixel') return;
             if (manualMode === 'light' || manualMode === 'dark') return;
+            var nextMode = e.matches ? 'dark' : 'light';
             if (e.matches) {
               document.documentElement.classList.add('dark');
               document.documentElement.style.colorScheme = 'dark';
@@ -46,6 +75,11 @@
               document.documentElement.classList.remove('dark');
               document.documentElement.style.colorScheme = 'light';
             }
+            try {
+              window.dispatchEvent(new CustomEvent('tms-skin-changed', {
+                detail: { skinId: 'pixel', mode: nextMode }
+              }));
+            } catch (err) {}
           });
         }
         
@@ -138,6 +172,26 @@
       
       .pc-mode.dark #root {
         background-color: #000000;
+      }
+
+      /* 像素黑白灰主题首屏防 FOUC：CSS bundle 加载前即呈现点阵底纹 */
+      html[data-skin="pixel"] {
+        background-color: #f5f5f5;
+        background-image: radial-gradient(rgba(17, 17, 17, 0.12) 1px, transparent 1px);
+        background-size: 16px 16px;
+        background-attachment: fixed;
+      }
+
+      html[data-skin="pixel"].dark {
+        background-color: #0d0d0d;
+        background-image: radial-gradient(rgba(250, 250, 250, 0.11) 1px, transparent 1px);
+        background-size: 16px 16px;
+        background-attachment: fixed;
+      }
+
+      html[data-skin="pixel"] body,
+      html[data-skin="pixel"] #root {
+        background-color: transparent;
       }
             
       /* 移动端滚动优化 */

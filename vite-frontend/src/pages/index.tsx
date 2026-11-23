@@ -139,13 +139,14 @@ export default function IndexPage() {
         }
       };
 
-      // 检测暗黑模式
-      const isDarkMode = document.documentElement.classList.contains('dark') || 
-                        document.documentElement.getAttribute('data-theme') === 'dark' ||
-                        window.matchMedia('(prefers-color-scheme: dark)').matches;
+      // 仅以页面实际暗黑状态为准，避免系统暗黑而面板手动浅色时误判
+      const isDarkMode = document.documentElement.classList.contains('dark');
+      const isPixelSkin = document.documentElement.getAttribute('data-skin') === 'pixel';
       
       // 根据主题调整颜色
-      const trackColor = isDarkMode ? "#4a5568" : "#7db0be"; // 暗黑模式使用更深的灰蓝色
+      const trackColor = isPixelSkin
+        ? (isDarkMode ? "#525252" : "#737373")
+        : (isDarkMode ? "#4a5568" : "#7db0be");
       
       const style: CaptchaStyle = {
         bgUrl: bgImage,
@@ -369,10 +370,8 @@ export default function IndexPage() {
                   ref={captchaContainerRef}
                   className="w-full flex justify-center"
                   style={{
-                    filter: document.documentElement.classList.contains('dark') || 
-                           document.documentElement.getAttribute('data-theme') === 'dark' ||
-                           window.matchMedia('(prefers-color-scheme: dark)').matches 
-                           ? 'brightness(0.8) contrast(0.9)' : 'none'
+                    filter: document.documentElement.classList.contains('dark')
+                      ? 'brightness(0.8) contrast(0.9)' : 'none'
                   }}
                 />
               </div>

@@ -34,7 +34,7 @@ export default function SkinPicker() {
         borderRadius: isPixel ? 2 : 6,
         backgroundImage: bg,
         display: "inline-block",
-        border: isPixel ? "1.5px solid #171717" : "1px solid rgba(128,128,128,.4)",
+        border: isPixel ? "1.5px solid var(--pixel-border, #171717)" : "1px solid rgba(128,128,128,.4)",
         imageRendering: isPixel ? "pixelated" : undefined,
       }}
     />

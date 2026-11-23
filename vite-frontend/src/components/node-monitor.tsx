@@ -7,6 +7,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, LineChart, Line,
 } from "recharts";
 import { getNodeMetrics, getNodeProbes } from "@/api";
+import { SKIN_CHANGED_EVENT } from "@/config/skins";
 
 // 转发机历史曲线(面板每分钟存一条,7 天后汇总成每小时一条)
 type Range = "1h" | "24h" | "7d" | "30d";
@@ -51,6 +52,15 @@ function ChartBox({ title, children }: { title: string; children: React.ReactNod
   );
 }
 
+const cssVar = (name: string, fallback: string) => {
+  if (typeof document === "undefined") return fallback;
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+};
+
+const PIXEL_LIGHT_LINES = ["#111111", "#525252", "#262626", "#737373", "#404040", "#0a0a0a", "#666666", "#333333"];
+const PIXEL_DARK_LINES = ["#fafafa", "#a3a3a3", "#e5e5e5", "#737373", "#d4d4d4", "#ffffff", "#b5b5b5", "#8a8a8a"];
+const PIXEL_DASHES: (string | undefined)[] = [undefined, "6 3", "2 2", "8 3 2 3", "4 4", "10 2", "3 2 1 2", "6 2 2 2"];
+
 export default function NodeMonitorModal({ node, onClose }: { node: any | null; onClose: () => void }) {
   const [range, setRange] = useState<Range>("24h");
   const [loading, setLoading] = useState(false);
@@ -58,6 +68,13 @@ export default function NodeMonitorModal({ node, onClose }: { node: any | null; 
   const [error, setError] = useState("");
   const [probe, setProbe] = useState<any>(null);
   const [step, setStep] = useState(60);
+  const [, setSkinVersion] = useState(0);
+
+  useEffect(() => {
+    const onSkinChanged = () => setSkinVersion((v) => v + 1);
+    window.addEventListener(SKIN_CHANGED_EVENT, onSkinChanged);
+    return () => window.removeEventListener(SKIN_CHANGED_EVENT, onSkinChanged);
+  }, []);
 
   useEffect(() => {
     if (!node) return;
@@ -82,13 +99,35 @@ export default function NodeMonitorModal({ node, onClose }: { node: any | null; 
     return () => { alive = false; };
   }, [node?.id, range]);
 
-  const C = {
-    primary: themeColor("primary", "#7b5cff"),
-    secondary: themeColor("secondary", "#4f8bff"),
-    success: themeColor("success", "#22c55e"),
-    warning: themeColor("warning", "#f59e0b"),
-  };
-  const tip = { background: themeColor("content1", "#111"), border: "none", borderRadius: 8 };
+  const isPixel =
+    typeof document !== "undefined" &&
+    document.documentElement.getAttribute("data-skin") === "pixel";
+  const isDark =
+    typeof document !== "undefined" &&
+    document.documentElement.classList.contains("dark");
+
+  const C = isPixel
+    ? {
+        primary: cssVar("--pixel-text", isDark ? "#fafafa" : "#111111"),
+        secondary: cssVar("--pixel-text-muted", isDark ? "#a3a3a3" : "#525252"),
+        success: cssVar("--pixel-border", isDark ? "#d4d4d4" : "#171717"),
+        warning: cssVar("--pixel-border-muted", isDark ? "#737373" : "#525252"),
+      }
+    : {
+        primary: themeColor("primary", "#7b5cff"),
+        secondary: themeColor("secondary", "#4f8bff"),
+        success: themeColor("success", "#22c55e"),
+        warning: themeColor("warning", "#f59e0b"),
+      };
+  const tip = isPixel
+    ? {
+        background: cssVar("--pixel-surface", isDark ? "#161616" : "#ffffff"),
+        color: cssVar("--pixel-text", isDark ? "#fafafa" : "#111111"),
+        border: `2px solid ${cssVar("--pixel-border", isDark ? "#d4d4d4" : "#171717")}`,
+        borderRadius: 2,
+        boxShadow: `3px 3px 0 0 ${cssVar("--pixel-shadow", isDark ? "#4a4a4a" : "#171717")}`,
+      }
+    : { background: themeColor("content1", "#111"), border: "none", borderRadius: 8 };
   // 延迟:每个目标一条线。key = "a<目标id>" / "l<目标id>"
   const probeTargets: any[] = probe?.targets || [];
   const probeRows: any[] = (() => {
@@ -101,7 +140,9 @@ export default function NodeMonitorModal({ node, onClose }: { node: any | null; 
     }
     return [...m.values()].sort((a, b) => a.ts - b.ts);
   })();
-  const LINE_COLORS = [C.primary, C.secondary, C.success, C.warning, "#ec4899", "#14b8a6", "#f97316", "#a3e635"];
+  const LINE_COLORS = isPixel
+    ? (isDark ? PIXEL_DARK_LINES : PIXEL_LIGHT_LINES)
+    : [C.primary, C.secondary, C.success, C.warning, "#ec4899", "#14b8a6", "#f97316", "#a3e635"];
   const totalRx = points.reduce((s, p) => s + (p.rx || 0), 0);
   const totalTx = points.reduce((s, p) => s + (p.tx || 0), 0);
 
@@ -218,7 +259,9 @@ export default function NodeMonitorModal({ node, onClose }: { node: any | null; 
                       <Legend wrapperStyle={{ fontSize: 11 }} />
                       {probeTargets.map((t: any, i: number) => (
                         <Line key={t.id} type="monotone" dataKey={"a" + t.id} name={t.name}
-                          stroke={LINE_COLORS[i % LINE_COLORS.length]} dot={false} connectNulls={false} isAnimationActive={false} />
+                          stroke={LINE_COLORS[i % LINE_COLORS.length]}
+                          strokeDasharray={isPixel ? PIXEL_DASHES[i % PIXEL_DASHES.length] : undefined}
+                          dot={false} connectNulls={false} isAnimationActive={false} />
                       ))}
                     </LineChart>
                   </ResponsiveContainer>

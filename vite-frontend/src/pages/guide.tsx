@@ -440,7 +440,7 @@ export default function GuidePage() {
             <Card className="border border-divider">
               <CardBody className="space-y-4">
                 <div className="flex items-center gap-2">
-                  <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-white text-xs font-bold shrink-0">
+                  <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold shrink-0">
                     1
                   </span>
                   <span className="font-semibold text-sm">客户端要拿到的是「订阅」还是「一个端口」?</span>
@@ -473,7 +473,7 @@ export default function GuidePage() {
             <Card className="border border-divider">
               <CardBody className="space-y-4">
                 <div className="flex items-center gap-2">
-                  <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-white text-xs font-bold shrink-0">
+                  <span className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground text-xs font-bold shrink-0">
                     2
                   </span>
                   <span className="font-semibold text-sm">要搬的东西自己加密吗?</span>

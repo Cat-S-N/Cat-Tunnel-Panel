@@ -5,6 +5,7 @@ import { Logo } from '@/components/icons';
 import { siteConfig } from '@/config/site';
 import { getMyPermissions } from '@/api';
 import ClientRecommendBanner from '@/components/client-recommend-banner';
+import SkinPicker from '@/components/skin-picker';
 
 interface TabItem {
   path: string;
@@ -148,6 +149,7 @@ export default function H5Layout({
         </div>
 
         <div className="flex items-center gap-2">
+          <SkinPicker />
         </div>
       </header>
 
