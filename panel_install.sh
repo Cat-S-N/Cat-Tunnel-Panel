@@ -274,6 +274,22 @@ EOF
   echo "✅ 管理命令已就绪:以后输入  tms  即可打开管理菜单(更新/卸载/彻底清理/查看状态)"
 }
 
+# 面板启动/更新后的快速自检与排障提示（不因自检未就绪而中断脚本）
+panel_health_hint() {
+  local bport=""
+  [ -f ".env" ] && bport="$(grep '^BACKEND_PORT=' .env 2>/dev/null | cut -d'=' -f2)"
+  [ -z "$bport" ] && bport="6365"
+
+  if curl -fsS --max-time 3 "http://127.0.0.1:${bport}/flow/test" >/dev/null 2>&1; then
+    echo "✅ 面板后端接口自检通过: http://127.0.0.1:${bport}/flow/test"
+  else
+    echo "ℹ️  后端接口暂未就绪或使用非本机默认端口，可稍后执行以下命令自检与排障："
+    echo "   curl -fsS http://127.0.0.1:${bport}/flow/test"
+    echo "   docker ps --filter \"name=gost-mysql\" --filter \"name=springboot-backend\" --filter \"name=vite-frontend\""
+    echo "   docker logs --tail 50 springboot-backend"
+  fi
+}
+
 # 查看运行状态
 show_status() {
   echo "📊 TMS 面板容器状态:"
@@ -519,6 +535,9 @@ EOF
   # 安装常驻管理命令 tms
   install_tms_command >/dev/null 2>&1
 
+  # 快速健康自检与排障提示
+  panel_health_hint
+
   # 收尾信息框:安装过程刷屏很正常,最后必须让人一眼看到地址/账号/密码
   print_access_box "${PUBLIC_IP:-你的服务器IP}" "$FRONTEND_PORT"
 
@@ -557,6 +576,12 @@ update_panel() {
   # 直接 curl -o docker-compose.yml 的话,一旦 404("Not Found" 9 字节)就把现有配置
   # 冲成垃圾,面板当场起不来、还回不去(踩过)。
   if curl -fsSL -o docker-compose.yml.new "$DOCKER_COMPOSE_URL" && grep -q "services:" docker-compose.yml.new; then
+    if [ -f "docker-compose.yml" ]; then
+      cp -f docker-compose.yml docker-compose.yml.bak
+      echo "💾 已将原有 docker-compose.yml 自动备份为 docker-compose.yml.bak"
+      echo "💡 提示: 如您有自定义配置（如 mem_limit、子网、端口绑定），后续也可通过以下命令进行平滑热更新："
+      echo "   docker compose pull backend frontend && docker compose up -d backend frontend"
+    fi
     mv -f docker-compose.yml.new docker-compose.yml
     echo "      ✔ 配置文件已更新"
   else
@@ -1252,6 +1277,9 @@ EOF
 
   # 清理临时文件
   rm -f temp_migration.sql
+
+  # 快速健康自检与排障提示
+  panel_health_hint
 
   echo "✅ 更新完成"
 }
