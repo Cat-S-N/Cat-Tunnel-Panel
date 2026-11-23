@@ -23,6 +23,40 @@ const GB = 1024 * 1024 * 1024;
 const fmtGB = (bytes: number) => `${((bytes || 0) / GB).toFixed(2)} GB`;
 const fmtDate = (ms?: number | null) => (ms ? new Date(ms).toLocaleDateString() : "永久");
 
+type StatusFilter = "all" | "normal" | "alert";
+
+/**
+ * 计算单条已分配用户线路的流量与到期预警状态。
+ */
+function getLineHealth(ln: any) {
+  const stopped = ln.lineStatus === 0;
+  const quotaBytes = ln.quotaGb > 0 ? ln.quotaGb * GB : 0;
+  const flowRatio = quotaBytes > 0 ? (ln.flow || 0) / quotaBytes : 0;
+  const isFlowExhausted = quotaBytes > 0 && flowRatio >= 1;
+  const isFlowWarning = quotaBytes > 0 && flowRatio >= 0.8 && flowRatio < 1;
+
+  const hasExp = Boolean(ln.lineExpTime);
+  const leftMs = hasExp ? ln.lineExpTime - Date.now() : Infinity;
+  const leftDays = hasExp ? Math.ceil(leftMs / 86400000) : Infinity;
+  const isExpired = hasExp && leftMs <= 0;
+  const isExpiringSoon = hasExp && leftMs > 0 && leftDays <= 7;
+
+  const isAlert = stopped || isExpired || isExpiringSoon || isFlowExhausted || isFlowWarning;
+
+  return {
+    stopped,
+    quotaBytes,
+    flowRatio,
+    isFlowExhausted,
+    isFlowWarning,
+    hasExp,
+    leftDays,
+    isExpired,
+    isExpiringSoon,
+    isAlert,
+  };
+}
+
 /**
  * 查看/管理某节点线路下所有已分配用户的弹窗（超级管理员和该节点的节点管理员均可用）。
  */
@@ -43,6 +77,7 @@ export function NodeAssignedUsersModal({
   const [items, setItems] = useState<any[]>([]);
   const [subBase, setSubBase] = useState<string>(window.location.origin);
   const [keyword, setKeyword] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
 
   const load = async () => {
     if (nodeId == null) return;
@@ -65,6 +100,7 @@ export function NodeAssignedUsersModal({
   useEffect(() => {
     if (isOpen && nodeId != null) {
       setKeyword("");
+      setStatusFilter("all");
       load();
     }
   }, [isOpen, nodeId, landingId]);
@@ -72,47 +108,145 @@ export function NodeAssignedUsersModal({
   const subUrl = (token: string) => `${subBase}/api/v1/open_api/sub?token=${token}`;
   const clashUrl = (token: string) => `${subBase}/api/v1/open_api/clash?token=${token}`;
 
+  const alertCount = items.filter((u) => getLineHealth(u).isAlert).length;
+  const normalCount = items.length - alertCount;
+
   const kw = keyword.trim().toLowerCase();
-  const filtered = kw
-    ? items.filter((u) => String(u.userName || "").toLowerCase().includes(kw))
-    : items;
+  const filtered = items.filter((u) => {
+    if (statusFilter === "normal" && getLineHealth(u).isAlert) return false;
+    if (statusFilter === "alert" && !getLineHealth(u).isAlert) return false;
+    if (!kw) return true;
+    const baseFields = [u.userName, u.remark, u.tunnelName];
+    if (baseFields.some((f) => String(f || "").toLowerCase().includes(kw))) return true;
+    if (
+      Array.isArray(u.protocols) &&
+      u.protocols.some(
+        (p: any) =>
+          String(p.remark || "").toLowerCase().includes(kw) ||
+          String(p.protocol || "").toLowerCase().includes(kw)
+      )
+    ) {
+      return true;
+    }
+    if (
+      Array.isArray(u.socksNodes) &&
+      u.socksNodes.some(
+        (s: any) =>
+          String(s.remark || "").toLowerCase().includes(kw) ||
+          String(s.name || "").toLowerCase().includes(kw)
+      )
+    ) {
+      return true;
+    }
+    return false;
+  });
 
   return (
     <Modal isOpen={isOpen} onClose={onClose} size="3xl" scrollBehavior="inside" backdrop="blur" placement="center">
       <ModalContent>
-        <ModalHeader>👥 已分配用户 — {title} ({items.length})</ModalHeader>
+        <ModalHeader className="flex flex-wrap items-center justify-between gap-2 pr-8">
+          <span>👥 已分配用户 — {title} ({items.length})</span>
+          {items.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap font-normal">
+              <Chip size="sm" variant="flat" color="default">总数 {items.length}</Chip>
+              <Chip size="sm" variant="flat" color="success">正常 {normalCount}</Chip>
+              <Chip size="sm" variant="flat" color={alertCount > 0 ? "warning" : "default"}>
+                预警/受限 {alertCount}
+              </Chip>
+            </div>
+          )}
+        </ModalHeader>
         <ModalBody className="space-y-3">
           {items.length > 0 && (
-            <Input
-              size="sm"
-              placeholder="搜索用户名..."
-              isClearable
-              value={keyword}
-              onValueChange={setKeyword}
-            />
+            <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+              <Input
+                size="sm"
+                className="flex-1"
+                placeholder="搜索用户名、备注或协议/隧道名称..."
+                isClearable
+                value={keyword}
+                onValueChange={setKeyword}
+              />
+              <div className="flex items-center gap-1 shrink-0">
+                <Button
+                  size="sm"
+                  variant={statusFilter === "all" ? "solid" : "flat"}
+                  color={statusFilter === "all" ? "primary" : "default"}
+                  onPress={() => setStatusFilter("all")}
+                >
+                  全部 ({items.length})
+                </Button>
+                <Button
+                  size="sm"
+                  variant={statusFilter === "normal" ? "solid" : "flat"}
+                  color={statusFilter === "normal" ? "success" : "default"}
+                  onPress={() => setStatusFilter("normal")}
+                >
+                  正常 ({normalCount})
+                </Button>
+                <Button
+                  size="sm"
+                  variant={statusFilter === "alert" ? "solid" : "flat"}
+                  color={statusFilter === "alert" ? "warning" : "default"}
+                  onPress={() => setStatusFilter("alert")}
+                >
+                  预警/受限 ({alertCount})
+                </Button>
+              </div>
+            </div>
           )}
 
           {loading ? (
             <div className="text-center text-default-400 py-8">加载中...</div>
           ) : filtered.length === 0 ? (
-            <div className="text-center text-default-400 py-8">
-              {items.length === 0 ? "这条线路还没有分配给任何用户" : "没有匹配的用户名"}
+            <div className="text-center text-default-400 py-8 space-y-2">
+              <div>{items.length === 0 ? "这条线路还没有分配给任何用户" : "没有匹配的用户记录"}</div>
+              {items.length > 0 && (
+                <Button
+                  size="sm"
+                  variant="flat"
+                  onPress={() => {
+                    setKeyword("");
+                    setStatusFilter("all");
+                  }}
+                >
+                  重置筛选
+                </Button>
+              )}
             </div>
           ) : (
             filtered.map((ln) => {
-              const stopped = ln.lineStatus === 0;
+              const health = getLineHealth(ln);
+              const { stopped, quotaBytes, flowRatio, isFlowExhausted, isFlowWarning, hasExp, leftDays, isExpired, isExpiringSoon } = health;
               const socksNodes: SocksNodeItem[] = Array.isArray(ln.socksNodes) ? ln.socksNodes : [];
+              const flowColor = isFlowExhausted ? "danger" : isFlowWarning ? "warning" : quotaBytes > 0 ? "success" : "default";
+              const expColor = isExpired ? "danger" : isExpiringSoon ? "warning" : "default";
               return (
                 <div
                   key={ln.userId}
                   className={`border border-default-200 rounded-lg p-3 space-y-2.5 ${stopped ? "opacity-70" : ""}`}
                 >
                   <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold text-sm">👤 {ln.userName}</span>
+                    <button
+                      type="button"
+                      title="点击复制用户名"
+                      className="font-semibold text-sm cursor-pointer hover:text-primary transition-colors text-left"
+                      onClick={async () => {
+                        (await copyTextToClipboard(String(ln.userName || "")))
+                          ? toast.success(`已复制用户名: ${ln.userName}`)
+                          : toast.error("复制失败");
+                      }}
+                    >
+                      👤 {ln.userName}
+                    </button>
                     {stopped && <Chip size="sm" color="danger" variant="flat">已停用</Chip>}
-                    <span className="text-xs text-default-500">
-                      流量 {fmtGB(ln.flow)} / {ln.quotaGb > 0 ? `${ln.quotaGb} GB` : "不限"} · 到期 {fmtDate(ln.lineExpTime)}
-                    </span>
+                    <Chip size="sm" variant="flat" color={flowColor}>
+                      流量 {fmtGB(ln.flow)} / {ln.quotaGb > 0 ? `${ln.quotaGb} GB (${Math.round(flowRatio * 100)}%)` : "不限"}
+                    </Chip>
+                    <Chip size="sm" variant="flat" color={expColor}>
+                      到期 {fmtDate(ln.lineExpTime)}
+                      {hasExp && (isExpired ? " (已过期)" : isExpiringSoon ? ` (剩 ${leftDays} 天)` : "")}
+                    </Chip>
                     <Chip size="sm" variant="flat" className="ml-auto">{ln.protocolCount} 协议</Chip>
                   </div>
 
