@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { Card, CardBody } from "@heroui/card";
 import { Button } from "@heroui/button";
+import { Chip } from "@heroui/chip";
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter, useDisclosure } from "@heroui/modal";
 import { Input } from "@heroui/input";
 import { toast } from 'react-hot-toast';
 import { useNavigate } from 'react-router-dom';
 import { isWebViewFunc } from '@/utils/panel';
 import { siteConfig } from '@/config/site';
-import { updatePassword } from '@/api';
+import { getUserPackageInfo, updatePassword } from '@/api';
 import { safeLogout } from '@/utils/logout';
+import { copyTextToClipboard } from '@/utils/clipboard';
+import { evaluatePasswordStrength } from '@/utils/password';
 interface PasswordForm {
   newUsername: string;
   currentPassword: string;
@@ -32,6 +35,13 @@ export default function ProfilePage() {
   const { isOpen, onOpen, onOpenChange } = useDisclosure();
   const [username, setUsername] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
+  const [accountInfo, setAccountInfo] = useState<{
+    flow?: number;
+    inFlow?: number;
+    outFlow?: number;
+    expTime?: number;
+    status?: number;
+  } | null>(null);
   const [passwordLoading, setPasswordLoading] = useState(false);
   const [passwordForm, setPasswordForm] = useState<PasswordForm>({
     newUsername: '',
@@ -55,6 +65,16 @@ export default function ProfilePage() {
     
     setUsername(name);
     setIsAdmin(adminFlag);
+
+    getUserPackageInfo()
+      .then((res) => {
+        if (res.code === 0 && res.data?.userInfo) {
+          setAccountInfo(res.data.userInfo);
+        }
+      })
+      .catch(() => {
+        // 个人中心配额信息加载失败时静默降级，不影响基础功能
+      });
   }, []);
 
   // 管理员菜单项。
@@ -220,6 +240,49 @@ export default function ProfilePage() {
     });
   };
 
+  const handleCopyUsername = async () => {
+    if (!username) return;
+    const ok = await copyTextToClipboard(username);
+    if (ok) {
+      toast.success('用户名已复制');
+    } else {
+      toast.error('复制失败，请手动复制');
+    }
+  };
+
+  const passwordStrength = evaluatePasswordStrength(passwordForm.newPassword);
+  const isSameAsCurrent = Boolean(
+    passwordForm.currentPassword &&
+      passwordForm.newPassword &&
+      passwordForm.currentPassword === passwordForm.newPassword
+  );
+  const isConfirmMatch =
+    Boolean(passwordForm.confirmPassword) &&
+    passwordForm.confirmPassword === passwordForm.newPassword;
+
+  // 计算流量使用率与到期天数
+  const totalFlowBytes = (accountInfo?.flow || 0) * 1024 * 1024 * 1024;
+  const usedFlowBytes = (accountInfo?.inFlow || 0) + (accountInfo?.outFlow || 0);
+  const flowPercent =
+    totalFlowBytes > 0 ? Math.min(100, Math.round((usedFlowBytes / totalFlowBytes) * 100)) : 0;
+  const flowColor =
+    flowPercent >= 90 ? 'danger' : flowPercent >= 70 ? 'warning' : 'success';
+
+  const getExpiryChip = () => {
+    if (!accountInfo?.expTime) {
+      return { label: '长期有效', color: 'success' as const };
+    }
+    const diffDays = Math.ceil((accountInfo.expTime - Date.now()) / (1000 * 60 * 60 * 24));
+    if (diffDays <= 0) {
+      return { label: '已过期', color: 'danger' as const };
+    }
+    if (diffDays <= 7) {
+      return { label: `剩余 ${diffDays} 天`, color: 'warning' as const };
+    }
+    return { label: `剩余 ${diffDays} 天`, color: 'primary' as const };
+  };
+  const expiryChip = getExpiryChip();
+
   return (
     <div className="px-3 lg:px-6 py-8 flex flex-col h-full">
 
@@ -233,20 +296,74 @@ export default function ProfilePage() {
                   <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
                 </svg>
               </div>
-              <div className="flex-1">
-                <h3 className="text-base font-medium text-foreground">{username}</h3>
-                <div className="flex items-center space-x-2 mt-1">
-                  <span className={`px-2 py-1 rounded-md text-xs font-medium ${
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-base font-medium text-foreground truncate">{username}</h3>
+                  <Button
+                    size="sm"
+                    variant="flat"
+                    className="h-6 min-w-0 px-2 text-xs"
+                    onPress={handleCopyUsername}
+                  >
+                    复制用户名
+                  </Button>
+                </div>
+                <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                  <span className={`px-2 py-0.5 rounded-md text-xs font-medium ${
                     isAdmin 
                       ? 'bg-primary-100 dark:bg-primary-500/20 text-primary-700 dark:text-primary-300' 
                       : 'bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300'
                   }`}>
                     {isAdmin ? '管理员' : '普通用户'}
                   </span>
+                  {accountInfo && (
+                    <>
+                      <Chip
+                        size="sm"
+                        variant="flat"
+                        color={accountInfo.status === 1 || accountInfo.status === undefined ? 'success' : 'danger'}
+                      >
+                        {accountInfo.status === 1 || accountInfo.status === undefined ? '账户正常' : '已禁用'}
+                      </Chip>
+                      <Chip size="sm" variant="flat" color={expiryChip.color}>
+                        {expiryChip.label}
+                      </Chip>
+                    </>
+                  )}
                   <span className="text-xs text-default-500">
                     {new Date().toLocaleDateString('zh-CN')}
                   </span>
                 </div>
+                {accountInfo && totalFlowBytes > 0 && (
+                  <div className="mt-3 space-y-1">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-default-500">流量配额使用率</span>
+                      <span
+                        className={`font-medium ${
+                          flowColor === 'danger'
+                            ? 'text-danger'
+                            : flowColor === 'warning'
+                              ? 'text-warning'
+                              : 'text-success'
+                        }`}
+                      >
+                        {flowPercent}%
+                      </span>
+                    </div>
+                    <div className="h-1.5 w-full rounded-full bg-default-200 overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-300 ${
+                          flowColor === 'danger'
+                            ? 'bg-danger'
+                            : flowColor === 'warning'
+                              ? 'bg-warning'
+                              : 'bg-success'
+                        }`}
+                        style={{ width: `${flowPercent}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </CardBody>
@@ -355,6 +472,33 @@ export default function ProfilePage() {
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPasswordForm(prev => ({ ...prev, newPassword: e.target.value }))}
                     variant="bordered"
                   />
+                  {passwordForm.newPassword && (
+                    <div className="space-y-1.5 -mt-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-default-500">密码强度（建议包含大小写字母、数字与特殊字符）</span>
+                        <Chip size="sm" variant="flat" color={passwordStrength.color}>
+                          {passwordStrength.label}
+                        </Chip>
+                      </div>
+                      <div className="h-1.5 w-full rounded-full bg-default-200 overflow-hidden">
+                        <div
+                          className={`h-full transition-all duration-300 ${
+                            passwordStrength.color === 'danger'
+                              ? 'bg-danger'
+                              : passwordStrength.color === 'warning'
+                                ? 'bg-warning'
+                                : 'bg-success'
+                          }`}
+                          style={{ width: `${passwordStrength.percent}%` }}
+                        />
+                      </div>
+                      {isSameAsCurrent && (
+                        <p className="text-xs text-warning-600 dark:text-warning-400">
+                          新密码与当前密码相同，建议更换为不同的密码
+                        </p>
+                      )}
+                    </div>
+                  )}
                   <Input
                     label="确认密码"
                     type="password"
@@ -363,6 +507,17 @@ export default function ProfilePage() {
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPasswordForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
                     variant="bordered"
                   />
+                  {passwordForm.confirmPassword && (
+                    <p
+                      className={`text-xs -mt-2 ${
+                        isConfirmMatch
+                          ? 'text-success-600 dark:text-success-400'
+                          : 'text-danger-600 dark:text-danger-400'
+                      }`}
+                    >
+                      {isConfirmMatch ? '两次输入的新密码一致' : '两次输入的新密码不一致'}
+                    </p>
+                  )}
                 </div>
               </ModalBody>
               <ModalFooter>

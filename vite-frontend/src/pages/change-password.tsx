@@ -1,4 +1,5 @@
 import { Button } from "@heroui/button";
+import { Chip } from "@heroui/chip";
 import { Input } from "@heroui/input";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { useState } from "react";
@@ -9,6 +10,7 @@ import { title } from "@/components/primitives";
 import { updatePassword } from "@/api";
 import DefaultLayout from "@/layouts/default";
 import { safeLogout } from "@/utils/logout";
+import { evaluatePasswordStrength } from "@/utils/password";
 
 interface PasswordForm {
   newUsername: string;
@@ -27,6 +29,11 @@ export default function ChangePasswordPage() {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Partial<PasswordForm>>({});
   const navigate = useNavigate();
+  const passwordStrength = evaluatePasswordStrength(form.newPassword);
+  const isSameAsCurrent = Boolean(
+    form.currentPassword && form.newPassword && form.currentPassword === form.newPassword
+  );
+  const isConfirmMatch = Boolean(form.confirmPassword) && form.confirmPassword === form.newPassword;
 
   const validateForm = (): boolean => {
     const newErrors: Partial<PasswordForm> = {};
@@ -162,6 +169,34 @@ export default function ChangePasswordPage() {
                   isInvalid={!!errors.newPassword}
                   errorMessage={errors.newPassword}
                 />
+
+                {form.newPassword && (
+                  <div className="space-y-1.5 -mt-2">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-default-500">密码强度（建议包含大小写字母、数字与特殊字符）</span>
+                      <Chip size="sm" variant="flat" color={passwordStrength.color}>
+                        {passwordStrength.label}
+                      </Chip>
+                    </div>
+                    <div className="h-1.5 w-full rounded-full bg-default-200 overflow-hidden">
+                      <div
+                        className={`h-full transition-all duration-300 ${
+                          passwordStrength.color === 'danger'
+                            ? 'bg-danger'
+                            : passwordStrength.color === 'warning'
+                              ? 'bg-warning'
+                              : 'bg-success'
+                        }`}
+                        style={{ width: `${passwordStrength.percent}%` }}
+                      />
+                    </div>
+                    {isSameAsCurrent && (
+                      <p className="text-xs text-warning-600 dark:text-warning-400">
+                        新密码与当前密码相同，建议更换为不同的密码
+                      </p>
+                    )}
+                  </div>
+                )}
                 
                 <Input
                   label="确认新密码"
@@ -175,6 +210,18 @@ export default function ChangePasswordPage() {
                   isInvalid={!!errors.confirmPassword}
                   errorMessage={errors.confirmPassword}
                 />
+
+                {form.confirmPassword && (
+                  <p
+                    className={`text-xs -mt-2 ${
+                      isConfirmMatch
+                        ? 'text-success-600 dark:text-success-400'
+                        : 'text-danger-600 dark:text-danger-400'
+                    }`}
+                  >
+                    {isConfirmMatch ? '两次输入的新密码一致' : '两次输入的新密码不一致'}
+                  </p>
+                )}
                 
                 <Button
                   color="warning"
