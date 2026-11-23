@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card, CardBody } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Input, Textarea } from "@heroui/input";
@@ -33,6 +33,9 @@ export default function LandingPage() {
   const [inbounds, setInbounds] = useState<any[]>([]);
   const [nodes, setNodes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchKeyword, setSearchKeyword] = useState("");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [usageFilter, setUsageFilter] = useState<"all" | "used" | "idle">("all");
 
   // 新建/编辑共用一个弹窗:form.id 有值 = 编辑
   const [open, setOpen] = useState(false);
@@ -201,10 +204,53 @@ export default function LandingPage() {
     setRowTesting(null);
   };
 
+  const landingStats = useMemo(() => {
+    let used = 0;
+    let idle = 0;
+    const typeCounts = new Map<string, number>();
+    for (const l of landings) {
+      const u = usageOf(l.id);
+      if (u.count > 0) used += 1;
+      else idle += 1;
+      const t = String(l.type || "unknown");
+      typeCounts.set(t, (typeCounts.get(t) || 0) + 1);
+    }
+    return { total: landings.length, used, idle, typeCounts: Array.from(typeCounts.entries()) };
+  }, [landings, inbounds]);
+
+  const filteredLandings = useMemo(() => {
+    const kw = searchKeyword.trim().toLowerCase();
+    return landings.filter((l) => {
+      const u = usageOf(l.id);
+      if (usageFilter === "used" && u.count === 0) return false;
+      if (usageFilter === "idle" && u.count > 0) return false;
+      if (typeFilter !== "all" && String(l.type || "") !== typeFilter) return false;
+      if (!kw) return true;
+      const fields = [l.name, l.link, l.type, l.remark];
+      return fields.some((f) => f && String(f).toLowerCase().includes(kw));
+    });
+  }, [landings, inbounds, usageFilter, typeFilter, searchKeyword]);
+
   return (
     <div className="p-4 space-y-4">
-      <div className="flex justify-between items-center">
-        <h1 className="text-xl font-bold">落地管理</h1>
+      <div className="flex justify-between items-center flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-xl font-bold">落地管理</h1>
+          <Chip size="sm" variant="flat" color="default">
+            总落地：{landingStats.total}
+          </Chip>
+          <Chip size="sm" variant="flat" color="primary">
+            使用中：{landingStats.used}
+          </Chip>
+          <Chip size="sm" variant="flat" color="default">
+            空闲：{landingStats.idle}
+          </Chip>
+          {landingStats.typeCounts.map(([t, cnt]) => (
+            <Chip key={t} size="sm" variant="flat" color={typeColor(t) as any}>
+              {t}: {cnt}
+            </Chip>
+          ))}
+        </div>
         <Button color="warning" onPress={openCreate}>➕ 新建落地</Button>
       </div>
 
@@ -214,11 +260,88 @@ export default function LandingPage() {
         换代理串、改名、删掉不用的。改完会自动给用到它的机器重推配置,车友的订阅链接不变。
       </div>
 
+      {landings.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            size="sm"
+            className="w-full sm:w-60"
+            placeholder="搜索名称 / 链接 / 协议 / 备注"
+            isClearable
+            value={searchKeyword}
+            onValueChange={setSearchKeyword}
+            onClear={() => setSearchKeyword("")}
+          />
+          <div className="flex items-center gap-1">
+            {(
+              [
+                { key: "all", label: "全部" },
+                { key: "used", label: "使用中" },
+                { key: "idle", label: "空闲" },
+              ] as const
+            ).map((item) => (
+              <Button
+                key={item.key}
+                size="sm"
+                variant={usageFilter === item.key ? "solid" : "flat"}
+                color={usageFilter === item.key ? "primary" : "default"}
+                onPress={() => setUsageFilter(item.key)}
+              >
+                {item.label}
+              </Button>
+            ))}
+          </div>
+          {landingStats.typeCounts.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1">
+              <Button
+                size="sm"
+                variant={typeFilter === "all" ? "solid" : "flat"}
+                color={typeFilter === "all" ? "secondary" : "default"}
+                onPress={() => setTypeFilter("all")}
+              >
+                全部协议
+              </Button>
+              {landingStats.typeCounts.map(([t]) => (
+                <Button
+                  key={t}
+                  size="sm"
+                  variant={typeFilter === t ? "solid" : "flat"}
+                  color={typeFilter === t ? "secondary" : "default"}
+                  onPress={() => setTypeFilter(t)}
+                >
+                  {t}
+                </Button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {loading ? (
         <div className="text-center text-default-400 py-8">加载中…</div>
+      ) : landings.length > 0 && filteredLandings.length === 0 ? (
+        <Card>
+          <CardBody className="text-center py-12 space-y-3">
+            <div className="text-sm font-medium text-foreground">无匹配落地机</div>
+            <div className="text-xs text-default-500">当前筛选或搜索条件下没有匹配的落地机</div>
+            <div>
+              <Button
+                size="sm"
+                color="primary"
+                variant="flat"
+                onPress={() => {
+                  setSearchKeyword("");
+                  setTypeFilter("all");
+                  setUsageFilter("all");
+                }}
+              >
+                重置筛选
+              </Button>
+            </div>
+          </CardBody>
+        </Card>
       ) : (
         <div className="grid gap-3 md:grid-cols-2">
-          {landings.map((l) => {
+          {filteredLandings.map((l) => {
             const u = usageOf(l.id);
             const r = rowResult[l.id];
             return (
@@ -238,7 +361,15 @@ export default function LandingPage() {
                   </div>
 
                   <div className="flex items-center gap-2">
-                    <div className="text-xs font-mono text-default-500 truncate flex-1" title={l.link}>
+                    <div
+                      className="text-xs font-mono text-default-500 truncate flex-1 cursor-pointer hover:text-primary"
+                      title="点击复制落地出口"
+                      onClick={async () => {
+                        (await copyTextToClipboard(l.link))
+                          ? toast.success("已复制落地出口")
+                          : toast.error("复制失败");
+                      }}
+                    >
                       {l.link}
                     </div>
                     <Button
