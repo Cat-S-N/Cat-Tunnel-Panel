@@ -14,7 +14,11 @@
  *
  * @returns 是否复制成功
  */
-export async function copyTextToClipboard(text: string): Promise<boolean> {
+export async function copyTextToClipboard(text?: string | null): Promise<boolean> {
+  if (typeof text !== "string" || !text.trim()) {
+    return false;
+  }
+
   // 1) 安全上下文(https/localhost)优先用标准 API
   try {
     if (navigator.clipboard && window.isSecureContext) {
@@ -26,29 +30,39 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
   }
 
   // 2) http / 弹窗回退
+  const activeElement =
+    document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  let wrote = false;
+  const onCopy = (e: ClipboardEvent) => {
+    // 直接写整段文本,不管当前选区是什么 → 绝不会“只复制一半”
+    e.clipboardData?.setData("text/plain", text);
+    e.preventDefault();
+    wrote = true;
+  };
+
+  let span: HTMLSpanElement | null = null;
+  const selection = window.getSelection();
+
   try {
-    let wrote = false;
-    const onCopy = (e: ClipboardEvent) => {
-      // 直接写整段文本,不管当前选区是什么 → 绝不会“只复制一半”
-      e.clipboardData?.setData("text/plain", text);
-      e.preventDefault();
-      wrote = true;
-    };
     document.addEventListener("copy", onCopy, true);
 
     // 用文档级 Range 选中临时节点,保证 execCommand('copy') 会触发 copy 事件。
     // Range 选区是文档级的,不像 <input>.select() 那样依赖元素焦点,弹窗抢焦点也在。
-    const span = document.createElement("span");
+    span = document.createElement("span");
     span.textContent = text;
+    span.setAttribute("aria-hidden", "true");
     span.style.position = "fixed";
-    span.style.top = "0";
-    span.style.left = "0";
+    span.style.top = "-9999px";
+    span.style.left = "-9999px";
+    span.style.width = "1px";
+    span.style.height = "1px";
+    span.style.overflow = "hidden";
     span.style.opacity = "0";
+    span.style.pointerEvents = "none";
     span.style.whiteSpace = "pre";
-    (span.style as any).userSelect = "text";
+    (span.style as unknown as Record<string, string>).userSelect = "text";
     document.body.appendChild(span);
 
-    const selection = window.getSelection();
     const range = document.createRange();
     range.selectNodeContents(span);
     selection?.removeAllRanges();
@@ -61,11 +75,29 @@ export async function copyTextToClipboard(text: string): Promise<boolean> {
       ok = false;
     }
 
-    selection?.removeAllRanges();
-    document.body.removeChild(span);
-    document.removeEventListener("copy", onCopy, true);
     return ok || wrote;
   } catch {
     return false;
+  } finally {
+    try {
+      selection?.removeAllRanges();
+    } catch {
+      // 忽略清理选区时的异常
+    }
+    if (span && span.parentNode) {
+      span.parentNode.removeChild(span);
+    }
+    document.removeEventListener("copy", onCopy, true);
+    if (
+      activeElement &&
+      document.contains(activeElement) &&
+      document.activeElement !== activeElement
+    ) {
+      try {
+        activeElement.focus({ preventScroll: true });
+      } catch {
+        // 忽略焦点恢复失败
+      }
+    }
   }
 }

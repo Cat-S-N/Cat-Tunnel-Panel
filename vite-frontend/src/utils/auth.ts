@@ -9,7 +9,11 @@ import { getRoleIdFromToken, isTokenValid } from './jwt';
  * @returns token
  */
 export function getToken(): string | null {
-  return localStorage.getItem('token');
+  try {
+    return localStorage.getItem('token');
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -39,6 +43,9 @@ export function isAdmin(): boolean {
  * @returns 是否有指定角色
  */
 export function hasRole(targetRoleId: number): boolean {
+  if (typeof targetRoleId !== 'number' || !Number.isFinite(targetRoleId)) {
+    return false;
+  }
   const roleId = getCurrentUserRoleId();
   return roleId === targetRoleId;
 }

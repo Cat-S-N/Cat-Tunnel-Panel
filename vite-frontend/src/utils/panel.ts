@@ -49,15 +49,19 @@ export function isWebViewFunc(){
 }
 
 // 验证面板地址格式
-export function validatePanelAddress(address: string): boolean {
+export function validatePanelAddress(address?: string | null): boolean {
   try {
+    if (typeof address !== 'string') {
+      return false;
+    }
+    const trimmed = address.trim();
     // 基本格式检查：必须以 http:// 或 https:// 开头
-    if (!address.startsWith('http://') && !address.startsWith('https://')) {
+    if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
       return false;
     }
 
     // 使用URL构造函数验证完整URL格式
-    const url = new URL(address);
+    const url = new URL(trimmed);
     
     // 检查主机名不能为空
     if (!url.hostname || url.hostname.trim() === '') {

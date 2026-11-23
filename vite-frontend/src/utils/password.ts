@@ -9,8 +9,8 @@ export interface PasswordStrengthResult {
 /**
  * 综合评估密码强度（长度、大小写字母、数字、特殊字符）
  */
-export function evaluatePasswordStrength(password: string): PasswordStrengthResult {
-  if (!password) {
+export function evaluatePasswordStrength(password?: string | null): PasswordStrengthResult {
+  if (typeof password !== 'string' || !password) {
     return {
       score: 0,
       level: 'weak',

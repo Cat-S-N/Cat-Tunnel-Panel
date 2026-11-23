@@ -15,9 +15,9 @@ interface JWTPayload {
  * @param token JWT Token
  * @returns payload数据
  */
-function getPayloadFromToken(token: string): JWTPayload | null {
+function getPayloadFromToken(token?: string | null): JWTPayload | null {
   try {
-    if (!token) return null;
+    if (typeof token !== 'string' || !token.trim()) return null;
     
     const parts = token.split('.');
     if (parts.length !== 3) return null;
@@ -48,9 +48,11 @@ function getPayloadFromToken(token: string): JWTPayload | null {
  * @param token JWT Token
  * @returns 用户ID
  */
-export function getUserIdFromToken(token: string): number | null {
+export function getUserIdFromToken(token?: string | null): number | null {
   const payload = getPayloadFromToken(token);
-  return payload ? parseInt(payload.sub) : null;
+  if (!payload || payload.sub === undefined || payload.sub === null) return null;
+  const id = Number.parseInt(String(payload.sub), 10);
+  return Number.isFinite(id) ? id : null;
 }
 
 /**
@@ -58,9 +60,11 @@ export function getUserIdFromToken(token: string): number | null {
  * @param token JWT Token
  * @returns 角色ID
  */
-export function getRoleIdFromToken(token: string): number | null {
+export function getRoleIdFromToken(token?: string | null): number | null {
   const payload = getPayloadFromToken(token);
-  return payload ? payload.role_id : null;
+  return payload && typeof payload.role_id === 'number' && Number.isFinite(payload.role_id)
+    ? payload.role_id
+    : null;
 }
 
 /**
@@ -68,9 +72,9 @@ export function getRoleIdFromToken(token: string): number | null {
  * @param token JWT Token
  * @returns 用户名
  */
-export function getUsernameFromToken(token: string): string | null {
+export function getUsernameFromToken(token?: string | null): string | null {
   const payload = getPayloadFromToken(token);
-  return payload ? payload.user : null;
+  return payload && typeof payload.user === 'string' ? payload.user : null;
 }
 
 /**
@@ -78,9 +82,11 @@ export function getUsernameFromToken(token: string): string | null {
  * @param token JWT Token
  * @returns 是否有效
  */
-export function isTokenValid(token: string): boolean {
+export function isTokenValid(token?: string | null): boolean {
   const payload = getPayloadFromToken(token);
-  if (!payload) return false;
+  if (!payload || typeof payload.exp !== 'number' || !Number.isFinite(payload.exp)) {
+    return false;
+  }
   
   const now = Math.floor(Date.now() / 1000);
   return payload.exp > now;

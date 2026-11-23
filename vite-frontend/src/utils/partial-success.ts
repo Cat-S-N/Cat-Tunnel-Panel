@@ -42,7 +42,7 @@ export function isPartialSuccess(msg?: string | null): boolean {
  * 返回 true = 调用方应当关弹窗并刷新。
  */
 export function toastResult(
-  res: { code?: number; msg?: string },
+  res: { code?: number; msg?: string } | null | undefined,
   okText: string,
   failPrefix: string,
   toast: {
