@@ -2,7 +2,7 @@ name: Build and Push Images Based on Version
 
 # 在这里定义统一版本号
 env:
-  VERSION: "1.0.1"
+  VERSION: "1.1.0"
 
 on:
   push:
@@ -76,9 +76,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
-          go-version: '1.21'
+          go-version-file: go-gost/go.mod
+          cache: false
 
       - name: Cache Go modules
         uses: actions/cache@v4
@@ -92,30 +93,51 @@ jobs:
 
       - name: Install UPX
         run: |
-          wget https://github.com/upx/upx/releases/download/v4.2.1/upx-4.2.1-amd64_linux.tar.xz
-          tar -xf upx-4.2.1-amd64_linux.tar.xz
-          sudo mv upx-4.2.1-amd64_linux/upx /usr/local/bin/
-          rm -rf upx-4.2.1-amd64_linux*
+          if wget -q --tries=3 https://github.com/upx/upx/releases/download/v4.2.1/upx-4.2.1-amd64_linux.tar.xz; then
+            tar -xf upx-4.2.1-amd64_linux.tar.xz
+            sudo mv upx-4.2.1-amd64_linux/upx /usr/local/bin/
+            rm -rf upx-4.2.1-amd64_linux*
+          else
+            echo "⚠️ UPX 下载失败，将跳过压缩并直接上传未压缩的 GOST 二进制"
+          fi
 
       - name: Build GOST binary (AMD64)
         working-directory: ./go-gost
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o gost-amd64
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod=mod -trimpath -ldflags="-s -w" -o gost-amd64 .
 
       - name: Build GOST binary (ARM64)
         working-directory: ./go-gost
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o gost-arm64
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -mod=mod -trimpath -ldflags="-s -w" -o gost-arm64 .
 
       - name: Compress with UPX (AMD64)
         working-directory: ./go-gost
         run: |
-          upx --best --lzma gost-amd64
+          if command -v upx >/dev/null 2>&1; then
+            cp gost-amd64 gost-amd64.orig
+            if upx --best --lzma gost-amd64; then
+              rm -f gost-amd64.orig
+            else
+              echo "⚠️ AMD64 UPX 压缩失败，回退保留未压缩二进制"
+              mv -f gost-amd64.orig gost-amd64
+            fi
+          fi
+          ls -lh gost-amd64
 
       - name: Compress with UPX (ARM64)
         working-directory: ./go-gost
         run: |
-          upx --best --lzma gost-arm64
+          if command -v upx >/dev/null 2>&1; then
+            cp gost-arm64 gost-arm64.orig
+            if upx --best --lzma gost-arm64; then
+              rm -f gost-arm64.orig
+            else
+              echo "⚠️ ARM64 UPX 压缩失败，回退保留未压缩二进制"
+              mv -f gost-arm64.orig gost-arm64
+            fi
+          fi
+          ls -lh gost-arm64
 
       - name: Upload GOST AMD64 artifact
         uses: actions/upload-artifact@v4

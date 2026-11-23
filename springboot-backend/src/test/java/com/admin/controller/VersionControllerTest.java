@@ -60,6 +60,7 @@ class VersionControllerTest {
 
         R first = controller.info(false);
         Map<String, Object> firstData = (Map<String, Object>) first.getData();
+        assertEquals("1.1.0", firstData.get("panelVersion"));
         assertEquals("1111111", firstData.get("latest"));
         assertEquals(false, firstData.get("checkFailed"));
         assertEquals(1, callCount.get());

@@ -317,7 +317,7 @@ export default function ConfigPage() {
         const info = response.data as VersionInfo;
         setVersionInfo(info);
         if (forceRefresh) {
-          const currentLabel = `v${info.panelVersion || '1.0.1'} (${info.commit || 'dev'})`;
+          const currentLabel = `v${info.panelVersion || '1.1.0'} (${info.commit || 'dev'})`;
           if (info.checkFailed) {
             toast.success(`版本已刷新：${currentLabel}（远程检测暂不可用）`);
           } else if (info.updateAvailable && info.latest) {
@@ -602,7 +602,7 @@ export default function ConfigPage() {
                 </Chip>
                 {versionInfo && (
                   <Chip size="sm" variant="flat" color={versionInfo.updateAvailable ? "warning" : "default"}>
-                    v{versionInfo.panelVersion || '1.0.1'} ({versionInfo.commit || 'dev'})
+                    v{versionInfo.panelVersion || '1.1.0'} ({versionInfo.commit || 'dev'})
                     {versionInfo.updateAvailable && versionInfo.latest ? ` → 可更新 ${versionInfo.latest}` : ''}
                   </Chip>
                 )}

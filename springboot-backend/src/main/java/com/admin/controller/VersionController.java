@@ -33,7 +33,7 @@ import java.util.Map;
 public class VersionController extends BaseController {
 
     /** 面板大版本,跟 CI 里的 VERSION 对齐,只用于展示 */
-    private static final String PANEL_VERSION = "1.0.1";
+    private static final String PANEL_VERSION = "1.1.0";
 
     /**
      * 注意查的是【最新一次构建成功的 workflow】,不是 main 的最新 commit。
