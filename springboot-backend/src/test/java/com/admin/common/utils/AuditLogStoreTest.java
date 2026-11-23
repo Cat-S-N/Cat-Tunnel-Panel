@@ -85,4 +85,36 @@ class AuditLogStoreTest {
         assertEquals(3L, failedRes.get("failedCount"));
         verify(jdbc).queryForList(contains("AND `result_code` <> 0"), eq(20), eq(0));
     }
+
+    @Test
+    void normalizeStatus_handlesCaseWhitespaceAndUnknownValues() {
+        assertEquals("all", AuditLogStore.normalizeStatus(null));
+        assertEquals("all", AuditLogStore.normalizeStatus(""));
+        assertEquals("all", AuditLogStore.normalizeStatus("   "));
+        assertEquals("all", AuditLogStore.normalizeStatus("ALL"));
+        assertEquals("all", AuditLogStore.normalizeStatus("unknown"));
+        assertEquals("success", AuditLogStore.normalizeStatus("  SUCCESS  "));
+        assertEquals("failed", AuditLogStore.normalizeStatus(" Failed\t"));
+    }
+
+    @Test
+    void query_normalizesCaseAndWhitespaceInStatus() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        AuditLogStore store = new AuditLogStore();
+        ReflectionTestUtils.setField(store, "jdbc", jdbc);
+        ReflectionTestUtils.setField(store, "available", true);
+
+        when(jdbc.queryForObject(anyString(), eq(Long.class), any(Object[].class)))
+                .thenReturn(2L);
+        when(jdbc.queryForList(anyString(), any(Object[].class)))
+                .thenReturn(Collections.emptyList());
+
+        Map<String, Object> upperSuccess = store.query(1, 20, null, null, " SUCCESS ");
+        assertEquals(2L, upperSuccess.get("failedCount"));
+        verify(jdbc).queryForList(contains("AND `result_code` = 0"), eq(20), eq(0));
+
+        Map<String, Object> mixedFailed = store.query(1, 20, null, null, " Failed ");
+        assertEquals(2L, mixedFailed.get("failedCount"));
+        verify(jdbc).queryForList(contains("AND `result_code` <> 0"), eq(20), eq(0));
+    }
 }
