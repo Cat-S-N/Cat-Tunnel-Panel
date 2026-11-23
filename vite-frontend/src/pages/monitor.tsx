@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Input } from "@heroui/input";
@@ -48,6 +48,9 @@ const daysLeft = (date?: string | null) => {
 function Overview({ ver, onChart, onMeta }: { ver: number; onChart: (n: any) => void; onMeta: (n: any) => void }) {
   const [nodes, setNodes] = useState<any[] | null>(null);
   const [failed, setFailed] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<"all" | "online" | "offline" | "high_load">("all");
+  const [searchKeyword, setSearchKeyword] = useState("");
+  const [sortBy, setSortBy] = useState<"default" | "cpu_desc" | "mem_desc" | "speed_desc">("default");
   const load = useCallback(() => {
     getMonitorOverview()
       .then((r: any) => { if (r.code === 0) { setNodes(r.data || []); setFailed(false); } else setFailed(true); })
@@ -59,14 +62,151 @@ function Overview({ ver, onChart, onMeta }: { ver: number; onChart: (n: any) => 
     return () => clearInterval(t);
   }, [load, ver]);
 
+  const stats = useMemo(() => {
+    const list = nodes || [];
+    let online = 0;
+    let offline = 0;
+    let highLoad = 0;
+    for (const n of list) {
+      if (n.online) online += 1;
+      else offline += 1;
+      const cpu = Number(n.cpu ?? n.cpuUsage ?? 0);
+      const mem = Number(n.mem ?? n.memoryUsage ?? 0);
+      if (cpu >= 80 || mem >= 80) highLoad += 1;
+    }
+    return { total: list.length, online, offline, highLoad };
+  }, [nodes]);
+
+  const filteredNodes = useMemo(() => {
+    const list = nodes || [];
+    const kw = searchKeyword.trim().toLowerCase();
+    const filtered = list.filter((n) => {
+      const cpu = Number(n.cpu ?? n.cpuUsage ?? 0);
+      const mem = Number(n.mem ?? n.memoryUsage ?? 0);
+      if (statusFilter === "online" && !n.online) return false;
+      if (statusFilter === "offline" && n.online) return false;
+      if (statusFilter === "high_load" && cpu < 80 && mem < 80) return false;
+      if (!kw) return true;
+      const fields = [n.name, n.serverIp, n.remark];
+      return fields.some((f) => f && String(f).toLowerCase().includes(kw));
+    });
+    if (sortBy === "cpu_desc") {
+      return [...filtered].sort((a, b) => Number(b.cpu ?? b.cpuUsage ?? 0) - Number(a.cpu ?? a.cpuUsage ?? 0));
+    }
+    if (sortBy === "mem_desc") {
+      return [...filtered].sort((a, b) => Number(b.mem ?? b.memoryUsage ?? 0) - Number(a.mem ?? a.memoryUsage ?? 0));
+    }
+    if (sortBy === "speed_desc") {
+      return [...filtered].sort((a, b) => {
+        const aSpd = Number(a.upSpeed ?? a.uploadSpeed ?? 0) + Number(a.downSpeed ?? a.downloadSpeed ?? 0);
+        const bSpd = Number(b.upSpeed ?? b.uploadSpeed ?? 0) + Number(b.downSpeed ?? b.downloadSpeed ?? 0);
+        return bSpd - aSpd;
+      });
+    }
+    return filtered;
+  }, [nodes, statusFilter, searchKeyword, sortBy]);
+
   if (nodes === null) return failed
     ? <div className="text-center text-danger py-16 text-sm">获取失败,稍后自动重试</div>
     : <div className="flex justify-center py-16"><Spinner /></div>;
   if (nodes.length === 0) return <div className="text-center text-default-500 py-16 text-sm">还没有转发机</div>;
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-      {nodes.map((n) => {
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Chip size="sm" variant="flat" color="default">总节点：{stats.total}</Chip>
+          <Chip size="sm" variant="flat" color="success">在线：{stats.online}</Chip>
+          <Chip size="sm" variant="flat" color={stats.offline > 0 ? "danger" : "default"}>离线：{stats.offline}</Chip>
+          <Chip size="sm" variant="flat" color={stats.highLoad > 0 ? "warning" : "default"}>高负载(≥80%)：{stats.highLoad}</Chip>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            size="sm"
+            className="w-52"
+            placeholder="搜索名称 / IP / 备注"
+            isClearable
+            value={searchKeyword}
+            onValueChange={setSearchKeyword}
+            onClear={() => setSearchKeyword("")}
+          />
+          <div className="flex items-center gap-1">
+            {(
+              [
+                { key: "all", label: "全部" },
+                { key: "online", label: "在线" },
+                { key: "offline", label: "离线" },
+                { key: "high_load", label: "高负载" },
+              ] as const
+            ).map((item) => (
+              <Button
+                key={item.key}
+                size="sm"
+                variant={statusFilter === item.key ? "solid" : "flat"}
+                color={
+                  statusFilter === item.key
+                    ? item.key === "online"
+                      ? "success"
+                      : item.key === "offline"
+                      ? "danger"
+                      : item.key === "high_load"
+                      ? "warning"
+                      : "primary"
+                    : "default"
+                }
+                onPress={() => setStatusFilter(item.key)}
+              >
+                {item.label}
+              </Button>
+            ))}
+          </div>
+          <div className="flex items-center gap-1">
+            {(
+              [
+                { key: "default", label: "默认排序" },
+                { key: "cpu_desc", label: "CPU 降序" },
+                { key: "mem_desc", label: "内存降序" },
+                { key: "speed_desc", label: "速率降序" },
+              ] as const
+            ).map((item) => (
+              <Button
+                key={item.key}
+                size="sm"
+                variant={sortBy === item.key ? "solid" : "flat"}
+                color={sortBy === item.key ? "secondary" : "default"}
+                onPress={() => setSortBy(item.key)}
+              >
+                {item.label}
+              </Button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {filteredNodes.length === 0 ? (
+        <Card className="border border-divider">
+          <CardBody className="text-center py-12 space-y-3">
+            <div className="text-sm font-medium text-foreground">无匹配监控节点</div>
+            <div className="text-xs text-default-500">当前筛选或搜索条件下没有匹配的节点</div>
+            <div>
+              <Button
+                size="sm"
+                color="primary"
+                variant="flat"
+                onPress={() => {
+                  setStatusFilter("all");
+                  setSearchKeyword("");
+                  setSortBy("default");
+                }}
+              >
+                重置筛选
+              </Button>
+            </div>
+          </CardBody>
+        </Card>
+      ) : (
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+      {filteredNodes.map((n) => {
         const left = daysLeft(n.expireDate);
         const quota = n.quotaGb ? n.quotaGb * 1024 ** 3 : 0;
         const pct = quota ? Math.min(100, (n.cycleUsed / quota) * 100) : 0;
@@ -131,6 +271,8 @@ function Overview({ ver, onChart, onMeta }: { ver: number; onChart: (n: any) => 
           </Card>
         );
       })}
+      </div>
+      )}
     </div>
   );
 }
