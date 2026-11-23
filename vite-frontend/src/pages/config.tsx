@@ -7,8 +7,10 @@ import { Spinner } from "@heroui/spinner";
 import { Divider } from "@heroui/divider";
 import { Switch } from "@heroui/switch";
 import { Select, SelectItem } from "@heroui/select";
+import { Chip } from "@heroui/chip";
 import toast from 'react-hot-toast';
-import { updateConfigs, testAlertNotify } from '@/api';
+import { updateConfigs, testAlertNotify, getVersionInfo } from '@/api';
+import { copyTextToClipboard } from '@/utils/clipboard';
 import { SettingsIcon } from '@/components/icons';
 
 import { isAdmin } from '@/utils/auth';
@@ -41,7 +43,53 @@ interface ConfigItem {
   dependsOn?: string; // 依赖的配置项key
   dependsValue?: string; // 依赖的配置项值
   sensitive?: boolean; // 敏感配置项（默认掩码显示，可点击切换明文）
+  copyable?: boolean; // 是否显示快捷复制按钮
 }
+
+interface VersionInfo {
+  panelVersion?: string;
+  commit?: string;
+  buildTime?: string | null;
+  latest?: string | null;
+  checkFailed?: boolean;
+  updateAvailable?: boolean;
+}
+
+interface ValidationResult {
+  error?: string;
+  hint?: string;
+}
+
+// 关键配置项格式校验
+const validateConfigValue = (key: string, rawValue?: string): ValidationResult => {
+  const value = (rawValue || '').trim();
+  if (!value) return {};
+
+  if (key === 'sub_url') {
+    if (!/^https?:\/\//i.test(value)) {
+      return { error: '订阅地址必须以 http:// 或 https:// 开头' };
+    }
+    if (/[?#]/.test(value)) {
+      return { error: '订阅地址不能包含 ? 或 # 参数' };
+    }
+    if (/\/+$/.test(value)) {
+      return { hint: '检测到末尾斜杠 /，保存时将自动去除' };
+    }
+  } else if (key === 'webhook_url') {
+    if (!/^https?:\/\//i.test(value)) {
+      return { error: 'Webhook 地址必须以 http:// 或 https:// 开头' };
+    }
+  } else if (key === 'ip') {
+    if (/^https?:\/\//i.test(value)) {
+      return { error: '面板后端地址无需填写 http:// 或 https://，请直接填写 IP:PORT' };
+    }
+    if (!value.includes(':')) {
+      return { hint: '建议使用 IP:PORT 格式（例如 1.2.3.4:6365）' };
+    }
+  }
+
+  return {};
+};
 
 // 网站配置项定义
 const CONFIG_ITEMS: ConfigItem[] = [
@@ -50,7 +98,8 @@ const CONFIG_ITEMS: ConfigItem[] = [
     label: '面板后端地址',
     placeholder: '请输入面板后端IP:PORT',
     description: '格式“ip:port”,用于对接转发机时使用,ip是你安装面板服务器的公网ip,端口是安装脚本内输入的后端端口。不要套CDN,不支持https,通讯数据有加密',
-    type: 'input'
+    type: 'input',
+    copyable: true
   },
   {
     key: 'sub_url',
@@ -62,7 +111,8 @@ const CONFIG_ITEMS: ConfigItem[] = [
       + '同一个 IP 上别再挂灰色云朵(仅 DNS)的记录,例如面板自己的域名,否则等于告诉别人源 IP;'
       + 'Cloudflare 在国内一般能用、可能慢、偶尔不通;Cloudflare 到面板这一段是 http 明文(和现在一样)。'
       + '只填 http(s)://主机名[:端口][/路径前缀],不能带 ? 或 #。清空 = 回到用面板地址。',
-    type: 'input'
+    type: 'input',
+    copyable: true
   },
   {
     key: 'app_name',
@@ -144,6 +194,7 @@ const CONFIG_ITEMS: ConfigItem[] = [
     description: '可选。支持飞书、钉钉、企业微信机器人以及通用 JSON POST Webhook',
     type: 'input',
     sensitive: true,
+    copyable: true,
     dependsOn: 'alert_enabled',
     dependsValue: 'true'
   }
@@ -179,6 +230,41 @@ export default function ConfigPage() {
   const [revealedKeys, setRevealedKeys] = useState<Record<string, boolean>>({});
   const [hasChanges, setHasChanges] = useState(false);
   const [originalConfigs, setOriginalConfigs] = useState<Record<string, string>>(initialConfigs);
+
+  useEffect(() => {
+    getVersionInfo(false)
+      .then((res: any) => {
+        if (res.code === 0 && res.data) {
+          setVersionInfo(res.data);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleRefreshVersion = async () => {
+    setRefreshingVersion(true);
+    try {
+      const res: any = await getVersionInfo(true);
+      if (res.code === 0 && res.data) {
+        setVersionInfo(res.data);
+        if (res.data.checkFailed) {
+          toast.error('检查最新版本失败，请稍后重试');
+        } else if (res.data.updateAvailable) {
+          toast.success(`发现新版本构建：${res.data.latest}`);
+        } else {
+          toast.success(`当前已是最新构建（${res.data.commit || 'dev'}）`);
+        }
+      } else {
+        toast.error(res.msg || '刷新版本信息失败');
+      }
+    } catch {
+      toast.error('刷新版本信息失败');
+    } finally {
+      setRefreshingVersion(false);
+    }
+  };
+  const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
+  const [refreshingVersion, setRefreshingVersion] = useState(false);
 
   // 权限检查
   useEffect(() => {
@@ -220,10 +306,45 @@ export default function ConfigPage() {
     }
   };
 
+  // 加载版本信息
+  const loadVersionInfo = async (forceRefresh = false) => {
+    if (forceRefresh) {
+      setRefreshingVersion(true);
+    }
+    try {
+      const response = await getVersionInfo(forceRefresh);
+      if (response.code === 0 && response.data) {
+        const info = response.data as VersionInfo;
+        setVersionInfo(info);
+        if (forceRefresh) {
+          const currentLabel = `v${info.panelVersion || '1.0.1'} (${info.commit || 'dev'})`;
+          if (info.checkFailed) {
+            toast.success(`版本已刷新：${currentLabel}（远程检测暂不可用）`);
+          } else if (info.updateAvailable && info.latest) {
+            toast.success(`发现新版本：${info.latest}（当前 ${info.commit || 'dev'}）`);
+          } else {
+            toast.success(`版本已刷新：${currentLabel}，当前已是最新`);
+          }
+        }
+      } else if (forceRefresh) {
+        toast.error(response.msg || '刷新版本信息失败');
+      }
+    } catch {
+      if (forceRefresh) {
+        toast.error('刷新版本信息出错，请重试');
+      }
+    } finally {
+      if (forceRefresh) {
+        setRefreshingVersion(false);
+      }
+    }
+  };
+
   useEffect(() => {
     // 延迟加载，避免阻塞初始渲染
     const timer = setTimeout(() => {
       loadConfigs(initialConfigs);
+      loadVersionInfo(false);
     }, 100);
 
     return () => clearTimeout(timer);
@@ -253,6 +374,15 @@ export default function ConfigPage() {
 
   // 保存配置
   const handleSave = async () => {
+    for (const item of CONFIG_ITEMS) {
+      if (!shouldShowItem(item)) continue;
+      const { error } = validateConfigValue(item.key, configs[item.key]);
+      if (error) {
+        toast.error(`${item.label}：${error}`);
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       const response = await updateConfigs(configs);
@@ -331,15 +461,20 @@ export default function ConfigPage() {
     const isChanged = hasChanges && configs[item.key] !== originalConfigs[item.key];
     
     switch (item.type) {
-      case 'input':
-        return (
+      case 'input': {
+        const validation = validateConfigValue(item.key, configs[item.key]);
+        const currentValue = configs[item.key] || '';
+        const inputElement = (
           <Input
             type={item.sensitive && !revealedKeys[item.key] ? 'password' : 'text'}
-            value={configs[item.key] || ''}
+            value={currentValue}
             onChange={(e) => handleConfigChange(item.key, e.target.value)}
             placeholder={item.placeholder}
             variant="bordered"
             size="md"
+            isInvalid={Boolean(validation.error)}
+            errorMessage={validation.error}
+            description={!validation.error ? validation.hint : undefined}
             endContent={
               item.sensitive ? (
                 <button
@@ -361,6 +496,34 @@ export default function ConfigPage() {
             }}
           />
         );
+
+        if (!item.copyable) {
+          return inputElement;
+        }
+
+        return (
+          <div className="flex items-start gap-2">
+            <div className="flex-1 min-w-0">{inputElement}</div>
+            <Button
+              size="md"
+              variant="flat"
+              color="default"
+              isDisabled={!currentValue.trim()}
+              onPress={async () => {
+                const ok = await copyTextToClipboard(currentValue.trim());
+                if (ok) {
+                  toast.success(`已复制${item.label}`);
+                } else {
+                  toast.error('复制失败，请手动选中复制');
+                }
+              }}
+              className="shrink-0"
+            >
+              复制
+            </Button>
+          </div>
+        );
+      }
 
       case 'switch':
         return (
@@ -428,14 +591,36 @@ export default function ConfigPage() {
     
       <div className="p-6 max-w-4xl mx-auto">
         {/* 页面标题 */}
-        <div className="flex items-center gap-3 mb-6">
-          <SettingsIcon className="w-8 h-8 text-primary" />
-          <div>
-            <h1 className="text-2xl font-bold">网站配置</h1>
-            <p className="text-gray-600 dark:text-gray-400">
-              管理网站的基本信息和显示设置
-            </p>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
+          <div className="flex items-center gap-3">
+            <SettingsIcon className="w-8 h-8 text-primary" />
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="text-2xl font-bold">网站配置</h1>
+                <Chip size="sm" variant="flat" color={hasChanges ? "warning" : "success"}>
+                  {hasChanges ? '有未保存修改' : '已同步'}
+                </Chip>
+                {versionInfo && (
+                  <Chip size="sm" variant="flat" color={versionInfo.updateAvailable ? "warning" : "default"}>
+                    v{versionInfo.panelVersion || '1.0.1'} ({versionInfo.commit || 'dev'})
+                    {versionInfo.updateAvailable && versionInfo.latest ? ` → 可更新 ${versionInfo.latest}` : ''}
+                  </Chip>
+                )}
+              </div>
+              <p className="text-gray-600 dark:text-gray-400">
+                管理网站的基本信息和显示设置
+              </p>
+            </div>
           </div>
+          <Button
+            size="sm"
+            variant="flat"
+            color="primary"
+            onPress={handleRefreshVersion}
+            isLoading={refreshingVersion}
+          >
+            {refreshingVersion ? '检查中...' : '🔄 强制刷新版本'}
+          </Button>
         </div>
 
         <Card className="shadow-md">
