@@ -316,10 +316,28 @@ export default function InboundPage() {
     return true;
   });
 
+  const directInbounds = inbounds.filter((ib) => !ib.landingId);
+  const onlineMachineCount = allMachineNodes.filter((n) => n.status === 1).length;
+  const offlineMachineCount = allMachineNodes.length - onlineMachineCount;
+
   return (
     <div className="p-4 space-y-4">
       <div className="flex justify-between items-center flex-wrap gap-2">
-        <h1 className="text-xl font-bold">协议管理</h1>
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-xl font-bold">协议管理</h1>
+          <Chip size="sm" variant="flat" color="default">
+            机器：{allMachineNodes.length}
+          </Chip>
+          <Chip size="sm" variant="flat" color="success">
+            在线：{onlineMachineCount}
+          </Chip>
+          <Chip size="sm" variant="flat" color={offlineMachineCount > 0 ? "danger" : "default"}>
+            离线：{offlineMachineCount}
+          </Chip>
+          <Chip size="sm" variant="flat" color="primary">
+            直连协议：{directInbounds.length}
+          </Chip>
+        </div>
         <div className="flex gap-2">
           <Button
             color="secondary"

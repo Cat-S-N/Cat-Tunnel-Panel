@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card, CardBody } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Input, Textarea } from "@heroui/input";
@@ -43,6 +43,9 @@ export default function RelayPage() {
   const [users, setUsers] = useState<any[]>([]);
   const [speedRules, setSpeedRules] = useState<any[]>([]);
   const [landings, setLandings] = useState<any[]>([]);
+  const [searchKeyword, setSearchKeyword] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "online" | "offline">("all");
+  const [protoFilter, setProtoFilter] = useState<string>("all");
 
   const [buildOpen, setBuildOpen] = useState(false);
   const [buildForm, setBuildForm] = useState<any>({ nodeId: null, name: "", link: "", sni: DEFAULT_SNI });
@@ -346,10 +349,64 @@ export default function RelayPage() {
     });
   });
 
+  const relayStats = useMemo(() => {
+    let online = 0;
+    let offline = 0;
+    let totalProtocols = 0;
+    for (const ln of relayLines) {
+      if (ln.node.status === 1) online += 1;
+      else offline += 1;
+      totalProtocols += ln.inbounds.length;
+    }
+    return { total: relayLines.length, online, offline, totalProtocols };
+  }, [relayLines]);
+
+  const availableProtos = useMemo(() => {
+    const set = new Set<string>();
+    for (const ln of relayLines) {
+      for (const ib of ln.inbounds) {
+        if (ib.protocol) set.add(String(ib.protocol));
+      }
+    }
+    return Array.from(set);
+  }, [relayLines]);
+
+  const filteredRelayLines = useMemo(() => {
+    const kw = searchKeyword.trim().toLowerCase();
+    return relayLines.filter((ln) => {
+      const n = ln.node;
+      if (statusFilter === "online" && n.status !== 1) return false;
+      if (statusFilter === "offline" && n.status === 1) return false;
+      if (protoFilter !== "all" && !ln.inbounds.some((ib: any) => ib.protocol === protoFilter)) {
+        return false;
+      }
+      if (!kw) return true;
+      const l = landingById(ln.landingId);
+      const landingName = l ? `${l.name} ${l.type}` : "";
+      const protoText = ln.inbounds.map((ib: any) => `${ib.protocol || ""} ${ib.remark || ""}`).join(" ");
+      const fields = [n.name, n.ip, n.serverIp, landingName, protoText];
+      return fields.some((f) => f && String(f).toLowerCase().includes(kw));
+    });
+  }, [relayLines, statusFilter, protoFilter, searchKeyword, landings]);
+
   return (
     <div className="p-4 space-y-4">
-      <div className="flex justify-between items-center">
-        <h1 className="text-xl font-bold">中转</h1>
+      <div className="flex justify-between items-center flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-xl font-bold">中转</h1>
+          <Chip size="sm" variant="flat" color="default">
+            总线路：{relayStats.total}
+          </Chip>
+          <Chip size="sm" variant="flat" color="success">
+            在线：{relayStats.online}
+          </Chip>
+          <Chip size="sm" variant="flat" color={relayStats.offline > 0 ? "danger" : "default"}>
+            离线：{relayStats.offline}
+          </Chip>
+          <Chip size="sm" variant="flat" color="primary">
+            总协议：{relayStats.totalProtocols}
+          </Chip>
+        </div>
         <Button
           color="secondary"
           onPress={() => {
@@ -366,9 +423,95 @@ export default function RelayPage() {
         中转 = 前置机搭协议(抗封锁),流量经「落地」出网。车友连的还是前置机的订阅,只是出口 IP 换成落地那台的。分配/限速/订阅与协议管理完全一致。
       </div>
 
+      {relayLines.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Input
+            size="sm"
+            className="w-full sm:w-60"
+            placeholder="搜索前置机 / 落地 / IP / 协议"
+            isClearable
+            value={searchKeyword}
+            onValueChange={setSearchKeyword}
+            onClear={() => setSearchKeyword("")}
+          />
+          <div className="flex items-center gap-1">
+            {(
+              [
+                { key: "all", label: "全部" },
+                { key: "online", label: "在线" },
+                { key: "offline", label: "离线" },
+              ] as const
+            ).map((item) => (
+              <Button
+                key={item.key}
+                size="sm"
+                variant={statusFilter === item.key ? "solid" : "flat"}
+                color={
+                  statusFilter === item.key
+                    ? item.key === "online"
+                      ? "success"
+                      : item.key === "offline"
+                      ? "danger"
+                      : "primary"
+                    : "default"
+                }
+                onPress={() => setStatusFilter(item.key)}
+              >
+                {item.label}
+              </Button>
+            ))}
+          </div>
+          {availableProtos.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1">
+              <Button
+                size="sm"
+                variant={protoFilter === "all" ? "solid" : "flat"}
+                color={protoFilter === "all" ? "secondary" : "default"}
+                onPress={() => setProtoFilter("all")}
+              >
+                全部协议
+              </Button>
+              {availableProtos.map((p) => (
+                <Button
+                  key={p}
+                  size="sm"
+                  variant={protoFilter === p ? "solid" : "flat"}
+                  color={protoFilter === p ? "secondary" : "default"}
+                  onPress={() => setProtoFilter(p)}
+                >
+                  {protoLabel(p)}
+                </Button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 每(前置机 × 落地)一张卡 = 一条中转线路 */}
+      {relayLines.length > 0 && filteredRelayLines.length === 0 ? (
+        <Card>
+          <CardBody className="text-center py-12 space-y-3">
+            <div className="text-sm font-medium text-foreground">无匹配中转线路</div>
+            <div className="text-xs text-default-500">当前筛选或搜索条件下没有匹配的中转线路</div>
+            <div>
+              <Button
+                size="sm"
+                color="primary"
+                variant="flat"
+                onPress={() => {
+                  setSearchKeyword("");
+                  setStatusFilter("all");
+                  setProtoFilter("all");
+                }}
+              >
+                重置筛选
+              </Button>
+            </div>
+          </CardBody>
+        </Card>
+      ) : (
       <div className="grid gap-3 md:grid-cols-2">
-        {relayLines.map((ln) => {
+        {filteredRelayLines.map((ln) => {
           const n = ln.node;
           const l = landingById(ln.landingId);
           const landingName = l ? `${l.name}(${l.type})` : `落地#${ln.landingId}`;
@@ -434,6 +577,7 @@ export default function RelayPage() {
           );
         })}
       </div>
+      )}
       {relayLines.length === 0 && (
         <div className="text-center text-default-400 py-8">
           还没有中转。点右上角「⚡ 搭中转」→ 选前置机 + 粘贴落地(住宅 socks 或协议链接)→ 测试通 → 搭建。
