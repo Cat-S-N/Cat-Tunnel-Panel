@@ -47,9 +47,31 @@ export class ErrorBoundary extends React.Component<{ children: React.ReactNode }
           <div className="max-w-md w-full rounded-xl border border-default-200 bg-content1 p-6 text-center space-y-4 shadow-lg">
             <div className="text-lg font-semibold">页面资源已更新或加载异常</div>
             <div className="text-xs text-default-500 break-all">{this.state.errorMsg}</div>
-            <Button color="primary" onPress={() => window.location.reload()}>
-              刷新页面恢复
-            </Button>
+            <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+              <Button
+                variant="flat"
+                onPress={() => {
+                  if (window.history.length > 1) {
+                    window.history.back();
+                  } else {
+                    window.location.href = "/";
+                  }
+                }}
+              >
+                返回上一页
+              </Button>
+              <Button
+                variant="flat"
+                onPress={() => {
+                  window.location.href = "/";
+                }}
+              >
+                返回首页
+              </Button>
+              <Button color="primary" onPress={() => window.location.reload()}>
+                刷新重试
+              </Button>
+            </div>
           </div>
         </div>
       );
