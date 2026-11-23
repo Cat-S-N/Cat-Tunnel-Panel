@@ -143,7 +143,8 @@ export const getUserLines = (userId: number) => Network.post("/inbound/user-line
 export const getMyLines = () => Network.post("/inbound/my-lines");
 
 // 版本信息 / 更新检查(后端拿构建时注入的 commit 跟 GitHub main 比)
-export const getVersionInfo = () => Network.post("/version/info");
+export const getVersionInfo = (refresh = false) =>
+  Network.post(refresh ? "/version/info?refresh=true" : "/version/info");
 
 // 修改密码接口
 export const updatePassword = (data: any) => Network.post("/user/updatePassword", data);
