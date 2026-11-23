@@ -788,6 +788,207 @@ html[data-skin="pixel"] ::-webkit-scrollbar-thumb:hover {
 }
 
 /* ==========================================================================
+   阶段 2：业务管理页像素黑白灰深化打磨（严格限定 html[data-skin="pixel"] 作用域）
+   ========================================================================== */
+
+/* 1. 全量清扫残余毛玻璃与大圆角（保留小状态圆点与加载圈） */
+html[data-skin="pixel"] .backdrop-blur,
+html[data-skin="pixel"] .backdrop-blur-md,
+html[data-skin="pixel"] .backdrop-blur-lg,
+html[data-skin="pixel"] .backdrop-blur-xl,
+html[data-skin="pixel"] .backdrop-blur-2xl,
+html[data-skin="pixel"] .backdrop-blur-3xl {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html[data-skin="pixel"] .rounded-xl:not(.animate-spin),
+html[data-skin="pixel"] .rounded-2xl:not(.animate-spin),
+html[data-skin="pixel"] .rounded-3xl:not(.animate-spin),
+html[data-skin="pixel"] .rounded-lg:not(.animate-spin) {
+  border-radius: 2px !important;
+}
+
+/* 2. 修复搜索框外层底色与表单变更警告边框 */
+html[data-skin="pixel"] [data-slot="base"]:has(> [data-slot="main-wrapper"] [data-slot="input-wrapper"]) {
+  background-color: transparent !important;
+}
+
+html[data-skin="pixel"] [data-slot="input-wrapper"].border-warning-300,
+html[data-skin="pixel"] [data-slot="trigger"].border-warning-300 {
+  border-color: #d97706 !important;
+}
+
+html[data-skin="pixel"].dark [data-slot="input-wrapper"].border-warning-300,
+html[data-skin="pixel"].dark [data-slot="trigger"].border-warning-300 {
+  border-color: #fbbf24 !important;
+}
+
+/* 3. 资源用量进度条正常态收口为黑白灰（保留过载 warning / danger 警示色） */
+html[data-skin="pixel"] [data-slot="indicator"].bg-success {
+  background-color: var(--pixel-invert-bg) !important;
+}
+
+/* 4. 业务卡片指标小块、内嵌面板与弹窗子卡片像素化 */
+html[data-skin="pixel"] .tms-metric-tile {
+  background-color: var(--pixel-surface-alt) !important;
+  border: 1px solid var(--pixel-border-muted) !important;
+  border-radius: 2px !important;
+  color: var(--pixel-text) !important;
+  font-variant-numeric: tabular-nums;
+}
+
+html[data-skin="pixel"] .tms-metric-tile [class*="text-primary"],
+html[data-skin="pixel"] .tms-metric-tile [class*="text-success"] {
+  color: var(--pixel-text-muted) !important;
+}
+
+html[data-skin="pixel"] .tms-metric-tile .font-mono {
+  color: var(--pixel-text) !important;
+}
+
+html[data-skin="pixel"] .tms-inline-panel {
+  background-color: var(--pixel-surface-alt) !important;
+  border: 1px solid var(--pixel-border-muted) !important;
+  border-radius: 2px !important;
+}
+
+html[data-skin="pixel"] .tms-subpanel {
+  background-color: var(--pixel-surface-alt) !important;
+  border: 1.5px solid var(--pixel-border-muted) !important;
+  border-radius: 2px !important;
+}
+
+html[data-skin="pixel"] .tms-subpanel-card {
+  background-color: var(--pixel-surface) !important;
+  border: 1px solid var(--pixel-border-muted) !important;
+  border-radius: 2px !important;
+}
+
+html[data-skin="pixel"] .tms-subpanel-card:hover {
+  border-color: var(--pixel-border) !important;
+}
+
+html[data-skin="pixel"] .tms-subpanel-featured {
+  background-color: var(--pixel-surface-alt) !important;
+  border: 2px solid var(--pixel-border) !important;
+  border-left-width: 4px !important;
+  border-radius: 2px !important;
+  box-shadow: none !important;
+}
+
+html[data-skin="pixel"] .bg-content1.tms-featured-card {
+  background-color: var(--pixel-surface-alt) !important;
+  border: 2px solid var(--pixel-border) !important;
+  border-left-width: 4px !important;
+  border-radius: 2px !important;
+  box-shadow: 4px 4px 0 0 var(--pixel-shadow) !important;
+}
+
+html[data-skin="pixel"] .tms-log-list {
+  background-color: var(--pixel-surface) !important;
+  border: 1px solid var(--pixel-border-muted) !important;
+  border-radius: 2px !important;
+}
+
+html[data-skin="pixel"] .tms-log-list > div + div {
+  border-top-color: var(--pixel-border-subtle) !important;
+}
+
+html[data-skin="pixel"] .tms-empty-dashed {
+  background-color: var(--pixel-surface) !important;
+  border: 2px dashed var(--pixel-border-muted) !important;
+  border-radius: 2px !important;
+}
+
+html[data-skin="pixel"] .tms-qr-box {
+  background-color: #ffffff !important;
+  border: 2px solid var(--pixel-border) !important;
+  border-radius: 2px !important;
+  box-shadow: 3px 3px 0 0 var(--pixel-shadow) !important;
+}
+
+html[data-skin="pixel"] .tms-role-badge {
+  border: 1px solid var(--pixel-border-muted) !important;
+}
+
+/* 弹窗内确认图标容器收口为黑白灰像素方框（保留内部语义图标色） */
+html[data-skin="pixel"] [role="dialog"] div.rounded-full[class*="items-center"][class*="justify-center"]:not(.animate-spin):not(.bg-success):not(.bg-danger) {
+  background-color: var(--pixel-surface-alt) !important;
+  border: 1.5px solid var(--pixel-border) !important;
+}
+
+/* 5. 克制可辨的状态语义色块（中性像素底 + 左侧 4px 语义强调边） */
+html[data-skin="pixel"] .tms-inline-alert-danger,
+html[data-skin="pixel"] .tms-result-danger,
+html[data-skin="pixel"] [role="dialog"] .bg-content1.tms-diag-card.border-danger,
+html[data-skin="pixel"] .bg-content1.tms-alert-card-danger {
+  background-color: var(--pixel-surface-alt) !important;
+  border: 1.5px solid var(--pixel-border-muted) !important;
+  border-left: 4px solid #dc2626 !important;
+  border-radius: 2px !important;
+}
+
+html[data-skin="pixel"].dark .tms-inline-alert-danger,
+html[data-skin="pixel"].dark .tms-result-danger,
+html[data-skin="pixel"].dark [role="dialog"] .bg-content1.tms-diag-card.border-danger,
+html[data-skin="pixel"].dark .bg-content1.tms-alert-card-danger {
+  border-left-color: #f87171 !important;
+}
+
+html[data-skin="pixel"] .tms-inline-alert-warning,
+html[data-skin="pixel"] .bg-content1.tms-alert-card-warning {
+  background-color: var(--pixel-surface-alt) !important;
+  border: 1.5px solid var(--pixel-border-muted) !important;
+  border-left: 4px solid #d97706 !important;
+  border-radius: 2px !important;
+}
+
+html[data-skin="pixel"].dark .tms-inline-alert-warning,
+html[data-skin="pixel"].dark .bg-content1.tms-alert-card-warning {
+  border-left-color: #fbbf24 !important;
+}
+
+html[data-skin="pixel"] .tms-result-success,
+html[data-skin="pixel"] [role="dialog"] .bg-content1.tms-diag-card.border-success {
+  background-color: var(--pixel-surface-alt) !important;
+  border: 1.5px solid var(--pixel-border-muted) !important;
+  border-left: 4px solid #16a34a !important;
+  border-radius: 2px !important;
+}
+
+html[data-skin="pixel"].dark .tms-result-success,
+html[data-skin="pixel"].dark [role="dialog"] .bg-content1.tms-diag-card.border-success {
+  border-left-color: #4ade80 !important;
+}
+
+/* 6. 表格与暗色可读性细节打磨（卡片内 removeWrapper 表格、弹窗内嵌表格与 Accordion） */
+html[data-skin="pixel"] .bg-content1 table {
+  border: 1px solid var(--pixel-border-muted);
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+html[data-skin="pixel"] .bg-content1 table th,
+html[data-skin="pixel"] .bg-content1 table td {
+  padding: 0.625rem 0.75rem;
+}
+
+html[data-skin="pixel"] [role="dialog"] [data-slot="wrapper"]:has(table) {
+  padding: 0 !important;
+  overflow: auto;
+}
+
+html[data-skin="pixel"].dark table .text-gray-600 {
+  color: var(--pixel-text-muted) !important;
+}
+
+html[data-skin="pixel"] .bg-content1 [data-slot="base"] .bg-content1 {
+  border: 1.5px solid var(--pixel-border-muted) !important;
+  box-shadow: none !important;
+}
+
+/* ==========================================================================
    现有经典皮肤（完整保留，互不干扰）
    ========================================================================== */
 

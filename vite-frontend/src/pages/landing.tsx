@@ -445,7 +445,7 @@ export default function LandingPage() {
           <ModalHeader>{form.id ? `✏️ 编辑落地` : "➕ 新建落地"}</ModalHeader>
           <ModalBody className="space-y-3">
             {form.id && usageOf(form.id).nodeIds.length > 0 && (
-              <div className="text-xs bg-warning-50 text-warning-700 dark:bg-warning-100/10 dark:text-warning-500 rounded-lg px-3 py-2">
+              <div className="tms-inline-alert-warning text-xs bg-warning-50 text-warning-700 dark:bg-warning-100/10 dark:text-warning-500 rounded-lg px-3 py-2">
                 ⚠️ 这条落地正在被 <b>{usageOf(form.id).nodeIds.map(nodeName).join("、")}</b> 使用。
                 保存后会立刻给这些机器重推配置,出口 IP 当场就变 ——
                 车友的订阅链接、UUID、端口都不变,不用重新发订阅。

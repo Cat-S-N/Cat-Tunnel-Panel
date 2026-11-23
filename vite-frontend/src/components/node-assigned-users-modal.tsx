@@ -224,7 +224,7 @@ export function NodeAssignedUsersModal({
               return (
                 <div
                   key={ln.userId}
-                  className={`border border-default-200 rounded-lg p-3 space-y-2.5 ${stopped ? "opacity-70" : ""}`}
+                  className={`tms-subpanel border border-default-200 rounded-lg p-3 space-y-2.5 ${stopped ? "opacity-70" : ""}`}
                 >
                   <div className="flex items-center gap-2 flex-wrap">
                     <button

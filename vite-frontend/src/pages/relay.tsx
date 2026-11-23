@@ -599,7 +599,7 @@ export default function RelayPage() {
             <div className="text-sm text-default-500">
               这条中转订阅是给你自己用的,复制到客户端就能用,出口走落地。以后在「我的订阅」页也能找到。
             </div>
-            <div className="text-xs text-default-400 bg-default-100 rounded-lg px-3 py-2">
+            <div className="tms-inline-panel text-xs text-default-400 bg-default-100 rounded-lg px-3 py-2">
               💡 链接前半段是<b>面板地址</b>,所以每条线路点出来都一样 —— 真正区分线路的是末尾的
               <b> token</b>。拉下来的节点才是这条线路的。
             </div>
@@ -643,7 +643,7 @@ export default function RelayPage() {
             >
               {users.map((u) => (<SelectItem key={u.id}>{u.user}</SelectItem>))}
             </Select>
-            <div className="space-y-2 rounded-lg border border-default-200 p-3">
+            <div className="tms-subpanel space-y-2 rounded-lg border border-default-200 p-3">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <span className="text-xs font-medium text-default-600">
                   选择协议 ({(assignForm.inboundIds || []).length}/{assignForm.protocolCount})

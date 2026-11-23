@@ -669,7 +669,7 @@ export default function TunnelPage() {
                     <div className="space-y-2">
                       {/* 流程展示 */}
                       <div className="space-y-1.5">
-                        <div className="p-2 bg-default-50 dark:bg-default-100/50 rounded border border-default-200 dark:border-default-300">
+                        <div className="tms-inline-panel p-2 bg-default-50 dark:bg-default-100/50 rounded border border-default-200 dark:border-default-300">
                           <div className="flex items-center justify-between mb-1">
                             <span className="text-xs font-medium text-default-600">入口转发机</span>
                           </div>
@@ -687,7 +687,7 @@ export default function TunnelPage() {
                           </svg>
                         </div>
                         
-                        <div className="p-2 bg-default-50 dark:bg-default-100/50 rounded border border-default-200 dark:border-default-300">
+                        <div className="tms-inline-panel p-2 bg-default-50 dark:bg-default-100/50 rounded border border-default-200 dark:border-default-300">
                           <div className="flex items-center justify-between mb-1">
                             <span className="text-xs font-medium text-default-600">
                               {tunnel.type === 1 ? '出口转发机（同入口）' : '出口转发机'}
@@ -1126,7 +1126,7 @@ export default function TunnelPage() {
                         const quality = getQualityDisplay(result.averageTime, result.packetLoss);
                         
                         return (
-                          <Card key={index} className={`shadow-sm border ${result.success ? 'border-success' : 'border-danger'}`}>
+                          <Card key={index} className={`tms-diag-card shadow-sm border ${result.success ? 'border-success' : 'border-danger'}`}>
                             <CardHeader className="pb-2">
                               <div className="flex items-center justify-between w-full">
                                 <div className="flex items-center gap-3">

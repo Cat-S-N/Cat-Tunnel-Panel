@@ -1357,7 +1357,7 @@ export default function ForwardPage() {
             {/* 地址信息 */}
             <div className="space-y-1">
               <div 
-                className={`cursor-pointer px-2 py-1 bg-default-50 dark:bg-default-100/50 rounded border border-default-200 dark:border-default-300 transition-colors duration-200 ${
+                className={`tms-inline-panel cursor-pointer px-2 py-1 bg-default-50 dark:bg-default-100/50 rounded border border-default-200 dark:border-default-300 transition-colors duration-200 ${
                   hasMultipleAddresses(forward.inIp) ? 'hover:bg-default-100 dark:hover:bg-default-200/50' : ''
                 }`}
                 onClick={() => showAddressModal(forward.inIp, forward.inPort, '入口端口')}
@@ -1379,7 +1379,7 @@ export default function ForwardPage() {
               </div>
               
               <div 
-                className={`cursor-pointer px-2 py-1 bg-default-50 dark:bg-default-100/50 rounded border border-default-200 dark:border-default-300 transition-colors duration-200 ${
+                className={`tms-inline-panel cursor-pointer px-2 py-1 bg-default-50 dark:bg-default-100/50 rounded border border-default-200 dark:border-default-300 transition-colors duration-200 ${
                   hasMultipleAddresses(forward.remoteAddr) ? 'hover:bg-default-100 dark:hover:bg-default-200/50' : ''
                 }`}
                 onClick={() => showAddressModal(forward.remoteAddr, null, '目标地址')}
@@ -1407,12 +1407,12 @@ export default function ForwardPage() {
                 {strategyDisplay.text}
               </Chip>
               <div className="flex items-center gap-1">
-                <Chip variant="flat" size="sm" className="text-xs" color="primary">
+                <Chip variant="flat" size="sm" className="tms-mono-badge text-xs" color="primary">
                   ↑{formatFlow(forward.inFlow || 0)}
                 </Chip>
                
               </div>
-              <Chip variant="flat" size="sm" className="text-xs" color="success">
+              <Chip variant="flat" size="sm" className="tms-mono-badge text-xs" color="success">
                   ↓{formatFlow(forward.outFlow || 0)}
                 </Chip>
             </div>
@@ -1653,7 +1653,7 @@ export default function ForwardPage() {
                   <CardHeader className="pb-3">
                     <div className="flex items-center justify-between w-full min-w-0">
                       <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <div className="w-10 h-10 bg-primary-100 dark:bg-primary-900/30 rounded-full flex items-center justify-center flex-shrink-0">
+                        <div className="tms-stat-icon w-10 h-10 bg-primary-100 dark:bg-primary-900/30 rounded-full flex items-center justify-center flex-shrink-0">
                           <svg className="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20">
                             <path fillRule="evenodd" d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z" clipRule="evenodd" />
                           </svg>
@@ -1681,7 +1681,7 @@ export default function ForwardPage() {
                           title={
                             <div className="flex items-center justify-between w-full min-w-0 pr-4">
                               <div className="flex items-center gap-3 min-w-0 flex-1">
-                                <div className="w-8 h-8 bg-success-100 dark:bg-success-900/30 rounded-lg flex items-center justify-center flex-shrink-0">
+                                <div className="tms-stat-icon w-8 h-8 bg-success-100 dark:bg-success-900/30 rounded-lg flex items-center justify-center flex-shrink-0">
                                   <svg className="w-4 h-4 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                                   </svg>
@@ -2099,7 +2099,7 @@ export default function ForwardPage() {
               
               <div className="space-y-2 max-h-60 overflow-y-auto">
                 {addressList.map((item) => (
-                  <div key={item.id} className="flex justify-between items-center p-3 border border-default-200 dark:border-default-100 rounded-lg">
+                  <div key={item.id} className="tms-subpanel-card flex justify-between items-center p-3 border border-default-200 dark:border-default-100 rounded-lg">
                     <code className="text-sm flex-1 mr-3 text-foreground">{item.address}</code>
                     <Button
                       size="sm"
@@ -2326,8 +2326,8 @@ export default function ForwardPage() {
                           key={index} 
                           className={`p-2 rounded border ${
                             result.success 
-                              ? 'bg-success-50 dark:bg-success-100/10 border-success-200 dark:border-success-300/20' 
-                              : 'bg-danger-50 dark:bg-danger-100/10 border-danger-200 dark:border-danger-300/20'
+                              ? 'tms-result-success bg-success-50 dark:bg-success-100/10 border-success-200 dark:border-success-300/20' 
+                              : 'tms-result-danger bg-danger-50 dark:bg-danger-100/10 border-danger-200 dark:border-danger-300/20'
                           }`}
                         >
                           <div className="flex items-center gap-2">
@@ -2426,7 +2426,7 @@ export default function ForwardPage() {
                         const quality = getQualityDisplay(result.averageTime, result.packetLoss);
                         
                         return (
-                          <Card key={index} className={`shadow-sm border ${result.success ? 'border-success' : 'border-danger'}`}>
+                          <Card key={index} className={`tms-diag-card shadow-sm border ${result.success ? 'border-success' : 'border-danger'}`}>
                             <CardHeader className="pb-2">
                               <div className="flex items-center justify-between w-full">
                                 <div>

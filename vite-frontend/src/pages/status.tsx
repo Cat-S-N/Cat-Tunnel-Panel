@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@heroui/button";
 import { Card, CardBody } from "@heroui/card";
 import { Chip } from "@heroui/chip";
@@ -9,6 +9,7 @@ import Network from "@/api/network";
 import { fmtBytes, latencyColor } from "@/pages/monitor";
 import { PixelCatLogo } from "@/components/pixel-cat-logo";
 import SkinPicker from "@/components/skin-picker";
+import { useSearchShortcut } from "@/hooks/useSearchShortcut";
 
 type StatusFilter = "all" | "online" | "offline" | "high_load";
 type SortMode = "default" | "cpu_desc" | "mem_desc" | "traffic_desc";
@@ -23,6 +24,8 @@ export default function StatusPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [search, setSearch] = useState("");
   const [sortMode, setSortMode] = useState<SortMode>("default");
+  const pageRef = useRef<HTMLDivElement>(null);
+  useSearchShortcut(pageRef);
 
   useEffect(() => {
     let alive = true;
@@ -78,7 +81,7 @@ export default function StatusPage() {
   if (!data.enabled) return <div className="min-h-screen flex items-center justify-center text-default-500 text-sm">状态页未开启</div>;
 
   return (
-    <div className="min-h-screen px-4 py-8 max-w-6xl mx-auto">
+    <div ref={pageRef} className="min-h-screen px-4 py-8 max-w-6xl mx-auto">
       <div className="mb-6 space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
@@ -160,7 +163,7 @@ export default function StatusPage() {
       </div>
 
       {filteredNodes.length === 0 ? (
-        <div className="py-16 text-center space-y-3 border border-dashed border-divider rounded-xl">
+        <div className="tms-empty-dashed py-16 text-center space-y-3 border border-dashed border-divider rounded-xl">
           <p className="text-sm text-default-500">没有匹配的节点</p>
           <Button size="sm" variant="flat" color="primary" onPress={resetFilters}>
             重置筛选

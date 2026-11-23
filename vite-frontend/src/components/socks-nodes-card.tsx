@@ -66,7 +66,7 @@ export function SocksNodesSection({
   };
 
   return (
-    <div className="border border-secondary/40 bg-secondary/5 rounded-lg p-3 space-y-3">
+    <div className="tms-subpanel-featured border border-secondary/40 bg-secondary/5 rounded-lg p-3 space-y-3">
       <div className="flex items-center gap-2 flex-wrap">
         <Chip size="sm" color="secondary" variant="flat">
           独立代理（SOCKS5 / HTTP / HTTPS）
@@ -87,7 +87,7 @@ export function SocksNodesSection({
           return (
             <div
               key={`${item.inboundId}-${item.port}`}
-              className={`border border-default-200 bg-background/80 rounded-lg p-3 space-y-2 ${stopped ? "opacity-70" : ""}`}
+              className={`tms-subpanel-card border border-default-200 bg-background/80 rounded-lg p-3 space-y-2 ${stopped ? "opacity-70" : ""}`}
             >
               <div className="flex items-center gap-2 flex-wrap">
                 <Chip size="sm" variant="flat" color={proto === "socks" ? "secondary" : proto === "https" ? "success" : "warning"}>

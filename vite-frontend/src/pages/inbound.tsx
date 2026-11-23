@@ -439,14 +439,14 @@ export default function InboundPage() {
                     不然只会以为是协议参数配错了,往那个方向查很久都查不出来 */}
                 {online && n.singboxRunning === false && nodeInbounds.length > 0 && (
                   n.singboxInstalling ? (
-                    <div className="rounded-lg border border-default-300 bg-default-100 px-3 py-2 space-y-1">
+                    <div className="tms-inline-panel rounded-lg border border-default-300 bg-default-100 px-3 py-2 space-y-1">
                       <div className="text-sm font-medium text-default-600">⏳ sing-box 正在安装,请稍候…</div>
                       <div className="text-xs text-default-500">
                         首次建协议时会现下 sing-box(约 57MB),一般 1-2 分钟。装好后这里自动恢复正常,不用管。
                       </div>
                     </div>
                   ) : n.singboxInstallErr ? (
-                    <div className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 space-y-1">
+                    <div className="tms-inline-alert-danger rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 space-y-1">
                       <div className="text-sm font-semibold text-danger">⚠️ sing-box 安装失败,这台机的协议全部不可用</div>
                       <div className="text-xs text-default-500 break-all">
                         节点报的原因:<code className="font-mono">{n.singboxInstallErr}</code>
@@ -456,7 +456,7 @@ export default function InboundPage() {
                       </div>
                     </div>
                   ) : (
-                    <div className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 space-y-1">
+                    <div className="tms-inline-alert-danger rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 space-y-1">
                       <div className="text-sm font-semibold text-danger">⚠️ sing-box 未运行,这台机的协议全部不可用</div>
                       {n.singboxInstalled === false ? (
                         <div className="text-xs text-default-500">
@@ -551,7 +551,7 @@ export default function InboundPage() {
             <div className="text-sm text-default-500">
               这条订阅是给你自己用的,复制到 v2rayN / 小火箭 里就能用。以后随时在「我的订阅」页也能找到。
             </div>
-            <div className="text-xs text-default-400 bg-default-100 rounded-lg px-3 py-2">
+            <div className="tms-inline-panel text-xs text-default-400 bg-default-100 rounded-lg px-3 py-2">
               💡 链接前半段是<b>面板地址</b>,所以每台机器点出来都一样 —— 真正区分线路的是末尾的
               <b> token</b>。拉下来的节点才是这台机器的。
             </div>
@@ -595,7 +595,7 @@ export default function InboundPage() {
             >
               {users.map((u) => (<SelectItem key={u.id}>{u.user}</SelectItem>))}
             </Select>
-            <div className="space-y-2 rounded-lg border border-default-200 p-3">
+            <div className="tms-subpanel space-y-2 rounded-lg border border-default-200 p-3">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <span className="text-xs font-medium text-default-600">
                   选择协议 ({(assignForm.inboundIds || []).length}/{assignForm.protocolCount})

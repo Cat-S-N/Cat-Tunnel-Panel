@@ -130,7 +130,7 @@ export function SubAccessLogsPanel({
   }, [logs]);
 
   return (
-    <div className={compact ? "pt-1" : "border border-default-200 rounded-lg p-3"}>
+    <div className={compact ? "pt-1" : "tms-subpanel border border-default-200 rounded-lg p-3"}>
       <div className="flex items-center justify-between gap-2">
         <button
           type="button"
@@ -193,7 +193,7 @@ export function SubAccessLogsPanel({
                   暂无拉取记录（用户更新订阅后会自动记录 IP 与客户端）
                 </div>
               ) : (
-                <div className="max-h-48 overflow-y-auto border border-default-100 rounded divide-y divide-default-100">
+                <div className="tms-log-list max-h-48 overflow-y-auto border border-default-100 rounded divide-y divide-default-100">
                   {logs.map((row) => {
                     const badge = subTypeBadge(row.subType);
                     const client = detectClientBadge(row.userAgent);

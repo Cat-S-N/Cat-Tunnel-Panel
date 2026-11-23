@@ -160,7 +160,7 @@ export default function MySubPage() {
       )}
 
       {(accountDisabled || accountExpired || accountOverFlow) && (
-        <Card className="border border-danger/40 bg-danger/5">
+        <Card className="tms-alert-card-danger border border-danger/40 bg-danger/5">
           <CardBody className="text-sm text-danger">
             ⚠️ 你的账号{accountExpired ? "已到期" : accountDisabled ? "已被停用" : "总流量已用完"},所有线路暂时不可用,请联系管理员。
           </CardBody>
@@ -176,7 +176,7 @@ export default function MySubPage() {
       )}
 
       {!loading && allSubToken && lines.length >= 1 && (
-        <Card className="border border-primary/40 bg-primary/5">
+        <Card className="tms-featured-card border border-primary/40 bg-primary/5">
           <CardBody className="space-y-3">
             <div className="flex items-center gap-2 flex-wrap">
               <Chip size="sm" color="primary" variant="flat">⭐ 全部线路</Chip>

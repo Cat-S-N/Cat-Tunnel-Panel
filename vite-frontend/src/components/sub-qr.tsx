@@ -15,7 +15,7 @@ export function SubQr({ url, size = 200 }: { url: string; size?: number }) {
   if (!url) return null;
   return (
     <div className="flex flex-col items-center gap-2">
-      <div className="bg-white p-3 rounded-lg shadow-sm">
+      <div className="tms-qr-box bg-white p-3 rounded-lg shadow-sm">
         <QRCodeSVG value={url} size={size} level="M" bgColor="#ffffff" fgColor="#000000" />
       </div>
       <div className="text-xs text-default-400">手机客户端扫这个码直接添加订阅</div>

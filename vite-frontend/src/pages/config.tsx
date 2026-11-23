@@ -695,7 +695,7 @@ export default function ConfigPage() {
 
         {/* 操作提示 */}
         {hasChanges && (
-          <Card className="mt-4 bg-warning-50 dark:bg-warning-900/20 border-warning-200 dark:border-warning-800">
+          <Card className="tms-alert-card-warning mt-4 bg-warning-50 dark:bg-warning-900/20 border-warning-200 dark:border-warning-800">
             <CardBody className="py-3">
               <div className="flex items-center gap-2 text-warning-700 dark:text-warning-300">
                 <div className="w-2 h-2 bg-warning-500 rounded-full animate-pulse" />

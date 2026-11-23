@@ -934,14 +934,14 @@ export default function NodePage() {
                   {node.connectionStatus === 'online' && node.singboxRunning === false
                     && (inboundNodeIds === null || inboundNodeIds.has(node.id)) && (
                     node.singboxInstalling ? (
-                      <div className="mb-3 rounded-lg border border-default-300 bg-default-100 px-2.5 py-2">
+                      <div className="tms-inline-panel mb-3 rounded-lg border border-default-300 bg-default-100 px-2.5 py-2">
                         <div className="text-xs font-medium text-default-600">⏳ sing-box 安装中</div>
                         <div className="text-[11px] text-default-500 mt-0.5 leading-relaxed">
                           首次建协议时会现下约 57MB,一般 1-2 分钟,装好自动恢复。
                         </div>
                       </div>
                     ) : (
-                      <div className="mb-3 rounded-lg border border-danger/40 bg-danger/10 px-2.5 py-2">
+                      <div className="tms-inline-alert-danger mb-3 rounded-lg border border-danger/40 bg-danger/10 px-2.5 py-2">
                         <div className="text-xs font-semibold text-danger">
                           ⚠️ sing-box {node.singboxInstallErr ? '安装失败' : '未运行'}
                         </div>
@@ -1043,7 +1043,7 @@ export default function NodePage() {
                     </div>
 
                     <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className="text-center p-2 bg-default-50 dark:bg-default-100 rounded">
+                      <div className="tms-metric-tile text-center p-2 bg-default-50 dark:bg-default-100 rounded">
                         <div className="text-default-600 mb-0.5">上传</div>
                         <div className="font-mono">
                           {node.connectionStatus === 'online' && node.systemInfo 
@@ -1052,7 +1052,7 @@ export default function NodePage() {
                           }
                         </div>
                       </div>
-                      <div className="text-center p-2 bg-default-50 dark:bg-default-100 rounded">
+                      <div className="tms-metric-tile text-center p-2 bg-default-50 dark:bg-default-100 rounded">
                         <div className="text-default-600 mb-0.5">下载</div>
                         <div className="font-mono">
                           {node.connectionStatus === 'online' && node.systemInfo 
@@ -1065,7 +1065,7 @@ export default function NodePage() {
 
                     {/* 流量统计 */}
                     <div className="grid grid-cols-2 gap-2 text-xs">
-                      <div className="text-center p-2 bg-primary-50 dark:bg-primary-100/20 rounded border border-primary-200 dark:border-primary-300/20">
+                      <div className="tms-metric-tile text-center p-2 bg-primary-50 dark:bg-primary-100/20 rounded border border-primary-200 dark:border-primary-300/20">
                         <div className="text-primary-600 dark:text-primary-400 mb-0.5">↑ 上行流量</div>
                         <div className="font-mono text-primary-700 dark:text-primary-300">
                           {node.connectionStatus === 'online' && node.systemInfo 
@@ -1074,7 +1074,7 @@ export default function NodePage() {
                           }
                         </div>
                       </div>
-                      <div className="text-center p-2 bg-success-50 dark:bg-success-100/20 rounded border border-success-200 dark:border-success-300/20">
+                      <div className="tms-metric-tile text-center p-2 bg-success-50 dark:bg-success-100/20 rounded border border-success-200 dark:border-success-300/20">
                         <div className="text-success-600 dark:text-success-400 mb-0.5">↓ 下行流量</div>
                         <div className="font-mono text-success-700 dark:text-success-300">
                           {node.connectionStatus === 'online' && node.systemInfo 
@@ -1087,7 +1087,7 @@ export default function NodePage() {
                   </div>
 
                   {/* IPv6 */}
-                  <div className="mb-3 p-2 rounded border border-divider text-xs space-y-1">
+                  <div className="tms-inline-panel mb-3 p-2 rounded border border-divider text-xs space-y-1">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-default-600">IPv6</span>
                       <span className="font-mono truncate" title={node.serverIpv6 || ''}>
@@ -1332,9 +1332,9 @@ export default function NodePage() {
                       className="mb-2"
                     />
                   )}
-                  <div className={`grid grid-cols-1 sm:grid-cols-3 gap-3 bg-default-50 dark:bg-default-100 p-3 rounded-md border border-default-200 dark:border-default-100/30 ${protocolDisabled ? 'opacity-70' : ''}`}>
+                  <div className={`tms-subpanel grid grid-cols-1 sm:grid-cols-3 gap-3 bg-default-50 dark:bg-default-100 p-3 rounded-md border border-default-200 dark:border-default-100/30 ${protocolDisabled ? 'opacity-70' : ''}`}>
                     {/* HTTP tile */}
-                    <div className="px-3 py-3 rounded-lg bg-white dark:bg-default-50 border border-default-200 dark:border-default-100/30 hover:border-primary-200 transition-colors">
+                    <div className="tms-subpanel-card px-3 py-3 rounded-lg bg-white dark:bg-default-50 border border-default-200 dark:border-default-100/30 hover:border-primary-200 transition-colors">
                       <div className="flex items-center gap-2 mb-2">
                         <svg className="w-4 h-4 text-default-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 10h20"/></svg>
                         <div className="text-sm font-medium text-default-700">HTTP</div>
@@ -1352,7 +1352,7 @@ export default function NodePage() {
                     </div>
 
                     {/* TLS tile */}
-                    <div className="px-3 py-3 rounded-lg bg-white dark:bg-default-50 border border-default-200 dark:border-default-100/30 hover:border-primary-200 transition-colors">
+                    <div className="tms-subpanel-card px-3 py-3 rounded-lg bg-white dark:bg-default-50 border border-default-200 dark:border-default-100/30 hover:border-primary-200 transition-colors">
                       <div className="flex items-center gap-2 mb-2">
                         <svg className="w-4 h-4 text-default-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 10V7a6 6 0 1 1 12 0v3"/><rect x="4" y="10" width="16" height="10" rx="2"/></svg>
                         <div className="text-sm font-medium text-default-700">TLS</div>
@@ -1370,7 +1370,7 @@ export default function NodePage() {
                     </div>
 
                     {/* SOCKS tile */}
-                    <div className="px-3 py-3 rounded-lg bg-white dark:bg-default-50 border border-default-200 dark:border-default-100/30 hover:border-primary-200 transition-colors">
+                    <div className="tms-subpanel-card px-3 py-3 rounded-lg bg-white dark:bg-default-50 border border-default-200 dark:border-default-100/30 hover:border-primary-200 transition-colors">
                       <div className="flex items-center gap-2 mb-2">
                         <svg className="w-4 h-4 text-default-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                         <div className="text-sm font-medium text-default-700">SOCKS</div>

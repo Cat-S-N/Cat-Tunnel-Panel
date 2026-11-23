@@ -1651,7 +1651,7 @@ export default function UserPage() {
                 <p className="text-small text-default-500 mt-1">
                   该操作只会重置账号流量不会重置隧道权限流量，重置后该用户的上下行流量将归零，此操作不可撤销。
                 </p>
-                <div className="mt-2 p-2 bg-warning-50 dark:bg-warning-100/10 rounded text-xs">
+                <div className="tms-inline-alert-warning mt-2 p-2 bg-warning-50 dark:bg-warning-100/10 rounded text-xs">
                   <div className="text-warning-700 dark:text-warning-300">
                     当前流量使用情况：
                   </div>
@@ -1720,7 +1720,7 @@ export default function UserPage() {
                 <p className="text-small text-default-500 mt-1">
                   该操作只会重置隧道权限流量不会重置账号流量，重置后该隧道权限的上下行流量将归零，此操作不可撤销。
                 </p>
-                <div className="mt-2 p-2 bg-warning-50 dark:bg-warning-100/10 rounded text-xs">
+                <div className="tms-inline-alert-warning mt-2 p-2 bg-warning-50 dark:bg-warning-100/10 rounded text-xs">
                   <div className="text-warning-700 dark:text-warning-300">
                     当前流量使用情况：
                   </div>
@@ -1779,7 +1779,7 @@ export default function UserPage() {
             </div>
 
             {subAllToken && subLines.length >= 1 && (
-              <div className="border border-primary/40 bg-primary/5 rounded-lg p-3 space-y-2">
+              <div className="tms-subpanel-featured border border-primary/40 bg-primary/5 rounded-lg p-3 space-y-2">
                 <div className="flex items-center gap-2 flex-wrap">
                   <Chip size="sm" color="primary" variant="flat">⭐ 全部线路</Chip>
                   <span className="text-sm">一条链接包含他所有线路,推荐发这条</span>
@@ -1848,7 +1848,7 @@ export default function UserPage() {
               const url = subUrl(ln.subToken);
               const isRelay = ln.type === 'relay';
               return (
-                <div key={idx} className="border border-default-200 rounded-lg p-3 space-y-2">
+                <div key={idx} className="tms-subpanel border border-default-200 rounded-lg p-3 space-y-2">
                   <div className="flex items-center gap-2">
                     <Chip size="sm" variant="flat" color={isRelay ? 'warning' : 'primary'}>
                       {isRelay ? `🔀 中转${ln.landingName ? '→' + ln.landingName : ''}` : '🖥️ 直连'}
@@ -2083,7 +2083,7 @@ export default function UserPage() {
                 </Button>
               </div>
             </div>
-            <div className="flex flex-wrap gap-2 rounded-lg border border-default-200 p-3 max-h-64 overflow-y-auto">
+            <div className="tms-subpanel flex flex-wrap gap-2 rounded-lg border border-default-200 p-3 max-h-64 overflow-y-auto">
               {allNodes.length === 0 ? (
                 <div className="text-xs text-default-400">暂无节点</div>
               ) : (
