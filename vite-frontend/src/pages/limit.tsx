@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Input } from "@heroui/input";
@@ -50,6 +50,10 @@ export default function LimitPage() {
   const [loading, setLoading] = useState(true);
   const [rules, setRules] = useState<SpeedLimitRule[]>([]);
   const [tunnels, setTunnels] = useState<Tunnel[]>([]);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+  const [tunnelFilter, setTunnelFilter] = useState<string>('all');
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [sortBy, setSortBy] = useState<'default' | 'speed_desc' | 'speed_asc'>('default');
   
   // 模态框状态
   const [modalOpen, setModalOpen] = useState(false);
@@ -228,29 +232,175 @@ export default function LimitPage() {
     );
   }
 
+  const ruleStats = useMemo(() => {
+    let active = 0;
+    let inactive = 0;
+    let maxSpeed = 0;
+    for (const r of rules) {
+      if (r.status === 1) active += 1;
+      else inactive += 1;
+      if ((r.speed || 0) > maxSpeed) maxSpeed = r.speed || 0;
+    }
+    return { total: rules.length, active, inactive, maxSpeed };
+  }, [rules]);
+
+  const filteredRules = useMemo(() => {
+    const kw = searchKeyword.trim().toLowerCase();
+    const filtered = rules.filter((r) => {
+      if (statusFilter === 'active' && r.status !== 1) return false;
+      if (statusFilter === 'inactive' && r.status === 1) return false;
+      if (tunnelFilter !== 'all' && String(r.tunnelId) !== tunnelFilter) return false;
+      if (!kw) return true;
+      const fields = [r.name, String(r.speed || ''), r.tunnelName];
+      return fields.some((f) => f && f.toLowerCase().includes(kw));
+    });
+    if (sortBy === 'speed_desc') {
+      return [...filtered].sort((a, b) => (b.speed || 0) - (a.speed || 0));
+    }
+    if (sortBy === 'speed_asc') {
+      return [...filtered].sort((a, b) => (a.speed || 0) - (b.speed || 0));
+    }
+    return filtered;
+  }, [rules, statusFilter, tunnelFilter, searchKeyword, sortBy]);
+
   return (
     
       <div className="px-3 lg:px-6 py-8">
         {/* 页面头部 */}
-        <div className="flex items-center justify-between mb-6">
-        <div className="flex-1">
-        </div>
-
-        <Button
+        <div className="flex flex-col gap-3 mb-6">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Chip size="sm" variant="flat" color="default">
+                总规则：{ruleStats.total}
+              </Chip>
+              <Chip size="sm" variant="flat" color="success">
+                运行：{ruleStats.active}
+              </Chip>
+              <Chip size="sm" variant="flat" color={ruleStats.inactive > 0 ? "danger" : "default"}>
+                异常：{ruleStats.inactive}
+              </Chip>
+              {ruleStats.total > 0 && (
+                <Chip size="sm" variant="flat" color="secondary">
+                  最高限速：{ruleStats.maxSpeed} MB/s
+                </Chip>
+              )}
+            </div>
+            <Button
               size="sm"
               variant="flat"
               color="primary"
               onPress={handleAdd}
-             
             >
               新增
             </Button>
+          </div>
+
+          {rules.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                size="sm"
+                className="w-full sm:w-56"
+                placeholder="搜索名称 / 速率 / 隧道"
+                isClearable
+                value={searchKeyword}
+                onValueChange={setSearchKeyword}
+                onClear={() => setSearchKeyword('')}
+              />
+              <div className="flex items-center gap-1">
+                {(
+                  [
+                    { key: 'all', label: '全部' },
+                    { key: 'active', label: '运行' },
+                    { key: 'inactive', label: '异常' },
+                  ] as const
+                ).map((item) => (
+                  <Button
+                    key={item.key}
+                    size="sm"
+                    variant={statusFilter === item.key ? 'solid' : 'flat'}
+                    color={
+                      statusFilter === item.key
+                        ? item.key === 'active'
+                          ? 'success'
+                          : item.key === 'inactive'
+                          ? 'danger'
+                          : 'primary'
+                        : 'default'
+                    }
+                    onPress={() => setStatusFilter(item.key)}
+                  >
+                    {item.label}
+                  </Button>
+                ))}
+              </div>
+              {tunnels.length > 0 && (
+                <Select
+                  size="sm"
+                  aria-label="关联隧道筛选"
+                  className="w-40"
+                  selectedKeys={[tunnelFilter]}
+                  onSelectionChange={(keys) => {
+                    const first = Array.from(keys)[0];
+                    setTunnelFilter(first ? String(first) : 'all');
+                  }}
+                >
+                  {[
+                    <SelectItem key="all">全部隧道</SelectItem>,
+                    ...tunnels.map((t) => (
+                      <SelectItem key={String(t.id)}>{t.name}</SelectItem>
+                    )),
+                  ]}
+                </Select>
+              )}
+              <div className="flex items-center gap-1">
+                {(
+                  [
+                    { key: 'default', label: '默认排序' },
+                    { key: 'speed_desc', label: '速率从高到低' },
+                    { key: 'speed_asc', label: '速率从低到高' },
+                  ] as const
+                ).map((item) => (
+                  <Button
+                    key={item.key}
+                    size="sm"
+                    variant={sortBy === item.key ? 'solid' : 'flat'}
+                    color={sortBy === item.key ? 'secondary' : 'default'}
+                    onPress={() => setSortBy(item.key)}
+                  >
+                    {item.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 统一卡片网格 */}
-        {rules.length > 0 ? (
+        {rules.length > 0 && filteredRules.length === 0 ? (
+          <Card className="shadow-sm border border-gray-200 dark:border-gray-700">
+            <CardBody className="text-center py-14">
+              <div className="flex flex-col items-center gap-3">
+                <h3 className="text-base font-semibold text-foreground">无匹配限速规则</h3>
+                <p className="text-default-500 text-sm">当前筛选或搜索条件下没有匹配的限速规则</p>
+                <Button
+                  size="sm"
+                  color="primary"
+                  variant="flat"
+                  onPress={() => {
+                    setStatusFilter('all');
+                    setTunnelFilter('all');
+                    setSearchKeyword('');
+                    setSortBy('default');
+                  }}
+                >
+                  重置筛选
+                </Button>
+              </div>
+            </CardBody>
+          </Card>
+        ) : rules.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-            {rules.map((rule) => (
+            {filteredRules.map((rule) => (
               <Card key={rule.id} className="shadow-sm border border-gray-200 dark:border-gray-700">
                 <CardHeader className="pb-3">
                   <div className="flex justify-between items-start w-full">
