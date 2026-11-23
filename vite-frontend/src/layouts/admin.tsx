@@ -50,6 +50,7 @@ export default function AdminLayout({
   const [username, setUsername] = useState('');
   const [isAdmin, setIsAdmin] = useState(false);
   const [isNodeAdmin, setIsNodeAdmin] = useState(false);
+  const [menuFilter, setMenuFilter] = useState('');
   // 面板名:先用本地值渲染,后台校验到新名字时(SITE_CONFIG_UPDATED)实时刷新,
   // 免得管理员改了名字、车友那边一直显示旧名
   const [appName, setAppName] = useState(siteConfig.name);
@@ -381,6 +382,14 @@ export default function AdminLayout({
     (!item.adminOnly || isAdmin || (isNodeAdmin && item.nodeAdminAllowed)) && (!item.userOnly || !isAdmin)
   );
 
+  // 根据搜索关键词进一步过滤侧边栏菜单
+  const normalizedMenuFilter = menuFilter.trim().toLowerCase();
+  const visibleMenuItems = normalizedMenuFilter
+    ? filteredMenuItems.filter(item => item.label.toLowerCase().includes(normalizedMenuFilter))
+    : filteredMenuItems;
+
+  const roleLabel = isAdmin ? '管理员' : isNodeAdmin ? '节点管理员' : '普通用户';
+
   return (
           <div className={`flex ${isMobile ? 'min-h-screen' : 'h-screen'} bg-transparent`}>
       {/* 移动端遮罩层 */}
@@ -435,32 +444,52 @@ export default function AdminLayout({
          </div>
 
                  {/* 菜单导航 */}
-         <nav className="flex-1 px-4 py-6 overflow-y-auto">
+         <nav className="flex-1 px-4 py-4 overflow-y-auto">
+           {filteredMenuItems.length > 4 && (
+             <div className="mb-3">
+               <Input
+                 size="sm"
+                 variant="bordered"
+                 placeholder="快速筛选菜单..."
+                 value={menuFilter}
+                 onValueChange={setMenuFilter}
+                 isClearable
+                 onClear={() => setMenuFilter('')}
+                 aria-label="快速筛选菜单"
+               />
+             </div>
+           )}
            <ul className="space-y-1">
-            {filteredMenuItems.map((item) => {
-              const isActive = location.pathname === item.path;
-              return (
-                <li key={item.path}>
-                                     <button
-                     onClick={() => handleMenuClick(item.path, item.href)}
-                     className={`
-                       w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left
-                       transition-colors duration-200 min-h-[44px]
-                       ${isActive 
-                         ? 'bg-primary-100 dark:bg-primary-600/20 text-primary-600 dark:text-primary-300' 
-                         : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-900'
-                       }
-                     `}
-                   >
-                     <div className="flex-shrink-0">
-                       {item.icon}
-                     </div>
-                     <span className="font-medium text-sm">{item.label}</span>
-                     {item.href && <span className="ml-auto text-xs text-default-400" aria-hidden="true">↗</span>}
-                   </button>
-                </li>
-              );
-            })}
+            {visibleMenuItems.length > 0 ? (
+              visibleMenuItems.map((item) => {
+                const isActive = location.pathname === item.path;
+                return (
+                  <li key={item.path}>
+                                       <button
+                       onClick={() => handleMenuClick(item.path, item.href)}
+                       className={`
+                         w-full flex items-center gap-3 px-4 py-3 rounded-lg text-left
+                         transition-colors duration-200 min-h-[44px]
+                         ${isActive 
+                           ? 'bg-primary-100 dark:bg-primary-600/20 text-primary-600 dark:text-primary-300' 
+                           : 'text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-900'
+                         }
+                       `}
+                     >
+                       <div className="flex-shrink-0">
+                         {item.icon}
+                       </div>
+                       <span className="font-medium text-sm">{item.label}</span>
+                       {item.href && <span className="ml-auto text-xs text-default-400" aria-hidden="true">↗</span>}
+                     </button>
+                  </li>
+                );
+              })
+            ) : (
+              <li className="px-3 py-4 text-center text-xs text-default-400">
+                未找到匹配菜单
+              </li>
+            )}
           </ul>
         </nav>
 
@@ -495,6 +524,19 @@ export default function AdminLayout({
           </div>
 
           <div className="flex items-center gap-3">
+            {/* 当前角色标识 */}
+            <span
+              className={`hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                isAdmin
+                  ? 'bg-primary-100 text-primary-700 dark:bg-primary-600/20 dark:text-primary-300'
+                  : isNodeAdmin
+                  ? 'bg-warning-100 text-warning-700 dark:bg-warning-600/20 dark:text-warning-300'
+                  : 'bg-default-100 text-default-600 dark:bg-default-500/20 dark:text-default-300'
+              }`}
+              title={`当前角色：${roleLabel}`}
+            >
+              {roleLabel}
+            </span>
             {/* 主题选择 */}
             <SkinPicker />
             {/* 用户菜单 */}

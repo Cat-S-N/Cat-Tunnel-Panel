@@ -50,6 +50,7 @@ export default function IndexPage() {
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Partial<LoginForm>>({});
   const [showCaptcha, setShowCaptcha] = useState(false);
+  const [capsLockOn, setCapsLockOn] = useState(false);
   const navigate = useNavigate();
   const tacInstanceRef = useRef<any>(null);
   const captchaContainerRef = useRef<HTMLDivElement>(null);
@@ -211,6 +212,7 @@ export default function IndexPage() {
   };
 
   const handleLogin = async () => {
+    if (loading) return;
     if (!validateForm()) return;
 
     setLoading(true);
@@ -247,7 +249,23 @@ export default function IndexPage() {
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !loading) {
+      e.preventDefault();
       handleLogin();
+    }
+  };
+
+  // 检测密码框大写锁定状态
+  const handlePasswordKeyEvent = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (typeof e.getModifierState === 'function') {
+      setCapsLockOn(e.getModifierState('CapsLock'));
+    }
+  };
+
+  // 用户名失焦时自动去除首尾空白
+  const handleUsernameBlur = () => {
+    const trimmed = form.username.trim();
+    if (trimmed !== form.username) {
+      setForm(prev => ({ ...prev, username: trimmed }));
     }
   };
 
@@ -261,12 +279,19 @@ export default function IndexPage() {
               <p className="text-small text-default-500 mt-2">请输入您的账号信息</p>
             </CardHeader>
             <CardBody className="px-6 py-6">
-              <div className="flex flex-col gap-4">
+              <form
+                className="flex flex-col gap-4"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleLogin();
+                }}
+              >
                 <Input
                   label="用户名"
                   placeholder="请输入用户名"
                   value={form.username}
                   onChange={(e) => handleInputChange('username', e.target.value)}
+                  onBlur={handleUsernameBlur}
                   onKeyDown={handleKeyPress}
                   variant="bordered"
                   isDisabled={loading}
@@ -274,30 +299,43 @@ export default function IndexPage() {
                   errorMessage={errors.username}
                 />
                 
-                <Input
-                  label="密码"
-                  placeholder="请输入密码"
-                  type="password"
-                  value={form.password}
-                  onChange={(e) => handleInputChange('password', e.target.value)}
-                  onKeyDown={handleKeyPress}
-                  variant="bordered"
-                  isDisabled={loading}
-                  isInvalid={!!errors.password}
-                />
+                <div className="flex flex-col gap-1">
+                  <Input
+                    label="密码"
+                    placeholder="请输入密码"
+                    type="password"
+                    value={form.password}
+                    onChange={(e) => handleInputChange('password', e.target.value)}
+                    onKeyDown={(e) => {
+                      handlePasswordKeyEvent(e);
+                      handleKeyPress(e);
+                    }}
+                    onKeyUp={handlePasswordKeyEvent}
+                    onBlur={() => setCapsLockOn(false)}
+                    variant="bordered"
+                    isDisabled={loading}
+                    isInvalid={!!errors.password}
+                    errorMessage={errors.password}
+                  />
+                  {capsLockOn && (
+                    <p className="text-xs text-warning px-1 flex items-center gap-1" role="status">
+                      <span>大写锁定（Caps Lock）已开启，请注意密码大小写</span>
+                    </p>
+                  )}
+                </div>
 
                 
                 <Button
+                  type="submit"
                   color="primary"
                   size="lg"
-                  onClick={handleLogin}
                   isLoading={loading}
-                  disabled={loading}
+                  isDisabled={loading}
                   className="mt-2"
                 >
                   {loading ? (showCaptcha ? "验证中..." : "登录中...") : "登录"}
                 </Button>
-              </div>
+              </form>
             </CardBody>
           </Card>
 
