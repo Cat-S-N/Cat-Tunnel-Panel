@@ -86,6 +86,19 @@ const validateConfigValue = (key: string, rawValue?: string): ValidationResult =
     if (!value.includes(':')) {
       return { hint: '建议使用 IP:PORT 格式（例如 1.2.3.4:6365）' };
     }
+  } else if (key === 'register_default_flow' || key === 'register_default_num') {
+    if (!/^\d+$/.test(value)) {
+      return { error: '请输入非负整数' };
+    }
+  } else if (key === 'register_default_exp_days') {
+    if (!/^\d+$/.test(value) || Number(value) <= 0) {
+      return { error: '请输入大于 0 的整数天数' };
+    }
+  } else if (key === 'register_default_flow_reset_time') {
+    const n = Number(value);
+    if (!/^\d+$/.test(value) || n < 0 || n > 31) {
+      return { error: '请输入 0 到 31 之间的整数（0 表示不重置）' };
+    }
   }
 
   return {};
@@ -196,6 +209,48 @@ const CONFIG_ITEMS: ConfigItem[] = [
     sensitive: true,
     copyable: true,
     dependsOn: 'alert_enabled',
+    dependsValue: 'true'
+  },
+  {
+    key: 'register_enabled',
+    label: '开放用户注册',
+    description: '开启后登录页将显示「注册账号」入口，允许新用户自助注册',
+    type: 'switch'
+  },
+  {
+    key: 'register_default_flow',
+    label: '新用户默认流量 (GB)',
+    placeholder: '10',
+    description: '自助注册用户的初始可用流量（单位：GB，默认 10）',
+    type: 'input',
+    dependsOn: 'register_enabled',
+    dependsValue: 'true'
+  },
+  {
+    key: 'register_default_num',
+    label: '新用户默认转发数上限',
+    placeholder: '5',
+    description: '自助注册用户可创建的转发规则数量上限（默认 5）',
+    type: 'input',
+    dependsOn: 'register_enabled',
+    dependsValue: 'true'
+  },
+  {
+    key: 'register_default_exp_days',
+    label: '新用户默认有效期 (天)',
+    placeholder: '30',
+    description: '自助注册用户的初始账号有效天数（默认 30 天）',
+    type: 'input',
+    dependsOn: 'register_enabled',
+    dependsValue: 'true'
+  },
+  {
+    key: 'register_default_flow_reset_time',
+    label: '新用户默认流量重置日',
+    placeholder: '1',
+    description: '每月流量重置日（1-31，填 0 表示不自动重置，默认 1）',
+    type: 'input',
+    dependsOn: 'register_enabled',
     dependsValue: 'true'
   }
 ];

@@ -185,6 +185,155 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 .build());
     }
 
+    private static final long REGISTER_RATE_WINDOW_MS = 10 * 60 * 1000L;
+    private static final int REGISTER_RATE_MAX_ATTEMPTS = 5;
+    private static final java.util.regex.Pattern REGISTER_USERNAME_PATTERN =
+            java.util.regex.Pattern.compile("^[a-zA-Z0-9_-]{3,32}$");
+    private final java.util.concurrent.ConcurrentHashMap<String, java.util.Deque<Long>> registerAttemptsByIp =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    @Override
+    public R register(RegisterDto registerDto) {
+        if (registerDto == null) {
+            return R.err("注册参数不能为空");
+        }
+
+        if (!"true".equals(getConfigValue("register_enabled"))) {
+            return R.err("当前未开放用户注册");
+        }
+
+        String clientIp = resolveClientIp();
+        if (isRegisterRateLimited(clientIp, System.currentTimeMillis())) {
+            return R.err("请求过于频繁，请稍后再试");
+        }
+
+        if ("true".equals(getConfigValue("captcha_enabled"))) {
+            if (StringUtils.isBlank(registerDto.getCaptchaId())) {
+                return R.err("验证码校验失败");
+            }
+            boolean valid = ((SecondaryVerificationApplication) application)
+                    .secondaryVerification(registerDto.getCaptchaId());
+            if (!valid) {
+                return R.err("验证码校验失败");
+            }
+        }
+
+        String username = registerDto.getUsername() == null ? "" : registerDto.getUsername().trim();
+        if (!REGISTER_USERNAME_PATTERN.matcher(username).matches()) {
+            return R.err("用户名需为3-32位字母、数字、下划线或连字符");
+        }
+
+        String password = registerDto.getPassword();
+        if (StringUtils.isBlank(password) || password.length() < 6 || password.length() > 64) {
+            return R.err("密码长度需在6-64位之间");
+        }
+
+        if (registerDto.getConfirmPassword() != null
+                && !Objects.equals(password, registerDto.getConfirmPassword())) {
+            return R.err("两次输入的密码不一致");
+        }
+
+        R usernameValidationResult = validateUsernameUniqueness(username, null);
+        if (usernameValidationResult.getCode() != 0) {
+            return usernameValidationResult;
+        }
+
+        long now = System.currentTimeMillis();
+        long defaultFlow = parseNonNegativeLongConfig("register_default_flow", 10L);
+        int defaultNum = (int) parseNonNegativeLongConfig("register_default_num", 5L);
+        long defaultExpDays = parsePositiveLongConfig("register_default_exp_days", 30L);
+        long defaultFlowResetTime = parseNonNegativeLongConfig("register_default_flow_reset_time", 1L);
+        if (defaultFlowResetTime > 31L) {
+            defaultFlowResetTime = 1L;
+        }
+
+        User user = new User();
+        user.setUser(username);
+        user.setPwd(Md5Util.md5(password));
+        user.setRoleId(USER_ROLE_ID);
+        user.setStatus(USER_STATUS_ACTIVE);
+        user.setFlow(defaultFlow);
+        user.setInFlow(0L);
+        user.setOutFlow(0L);
+        user.setNum(defaultNum);
+        user.setExpTime(now + defaultExpDays * 86400_000L);
+        user.setFlowResetTime(defaultFlowResetTime);
+        user.setQuantumultXEnabled(0);
+        user.setCreatedTime(now);
+        user.setUpdatedTime(now);
+
+        return this.save(user) ? R.ok("注册成功") : R.err(ERROR_CREATE_FAILED);
+    }
+
+    private String resolveClientIp() {
+        try {
+            javax.servlet.http.HttpServletRequest request =
+                    com.admin.common.utils.HttpContextUtils.getHttpServletRequest();
+            if (request == null) {
+                return "unknown";
+            }
+            String xff = request.getHeader("X-Forwarded-For");
+            if (StringUtils.isNotBlank(xff)) {
+                return xff.split(",")[0].trim();
+            }
+            String remoteAddr = request.getRemoteAddr();
+            return StringUtils.isNotBlank(remoteAddr) ? remoteAddr : "unknown";
+        } catch (Exception e) {
+            return "unknown";
+        }
+    }
+
+    boolean isRegisterRateLimited(String ip, long nowMs) {
+        String key = StringUtils.isNotBlank(ip) ? ip : "unknown";
+        java.util.Deque<Long> deque = registerAttemptsByIp.computeIfAbsent(
+                key, k -> new java.util.ArrayDeque<>());
+        synchronized (deque) {
+            while (!deque.isEmpty() && nowMs - deque.peekFirst() > REGISTER_RATE_WINDOW_MS) {
+                deque.pollFirst();
+            }
+            if (deque.size() >= REGISTER_RATE_MAX_ATTEMPTS) {
+                return true;
+            }
+            deque.addLast(nowMs);
+            return false;
+        }
+    }
+
+    void clearRegisterRateLimitForTest() {
+        registerAttemptsByIp.clear();
+    }
+
+    String getConfigValue(String key) {
+        ViteConfig cfg = viteConfigService.getOne(new QueryWrapper<ViteConfig>().eq("name", key));
+        return cfg == null ? null : cfg.getValue();
+    }
+
+    private long parseNonNegativeLongConfig(String key, long fallback) {
+        String raw = getConfigValue(key);
+        if (StringUtils.isBlank(raw)) {
+            return fallback;
+        }
+        try {
+            long val = Long.parseLong(raw.trim());
+            return val >= 0 ? val : fallback;
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
+    private long parsePositiveLongConfig(String key, long fallback) {
+        String raw = getConfigValue(key);
+        if (StringUtils.isBlank(raw)) {
+            return fallback;
+        }
+        try {
+            long val = Long.parseLong(raw.trim());
+            return val > 0 ? val : fallback;
+        } catch (NumberFormatException e) {
+            return fallback;
+        }
+    }
+
     /**
      * 创建用户
      * 检查用户名唯一性，设置默认属性，加密密码

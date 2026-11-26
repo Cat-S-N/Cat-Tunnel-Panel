@@ -7,6 +7,13 @@ export interface LoginData {
   captchaId: string;
 }
 
+export interface RegisterData {
+  username: string;
+  password: string;
+  confirmPassword: string;
+  captchaId: string;
+}
+
 export interface LoginResponse {
   token: string;
   role_id: number;
@@ -15,6 +22,7 @@ export interface LoginResponse {
 }
 
 export const login = (data: LoginData) => Network.post<LoginResponse>("/user/login", data);
+export const register = (data: RegisterData) => Network.post("/user/register", data);
 
 // 用户CRUD操作 - 全部使用POST请求（仅纯只读查询允许幂等重试）
 export const createUser = (data: any) => Network.post("/user/create", data);

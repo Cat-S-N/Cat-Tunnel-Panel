@@ -10,7 +10,7 @@ import { siteConfig } from '@/config/site';
 import { title } from "@/components/primitives";
 import { PixelCatLogo } from "@/components/pixel-cat-logo";
 import DefaultLayout from "@/layouts/default";
-import { login, LoginData, checkCaptcha } from "@/api";
+import { login, LoginData, register, RegisterData, checkCaptcha, getConfigByName } from "@/api";
 import "@/utils/tac.css";
 import "@/utils/tac.min.js";
 import bgImage from "@/images/bg.jpg";
@@ -19,6 +19,7 @@ import bgImage from "@/images/bg.jpg";
 interface LoginForm {
   username: string;
   password: string;
+  confirmPassword: string;
   captchaId: string;
 }
 
@@ -46,12 +47,15 @@ export default function IndexPage() {
   const [form, setForm] = useState<LoginForm>({
     username: "",
     password: "",
+    confirmPassword: "",
     captchaId: "",
   });
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Partial<LoginForm>>({});
   const [showCaptcha, setShowCaptcha] = useState(false);
   const [capsLockOn, setCapsLockOn] = useState(false);
+  const [registerEnabled, setRegisterEnabled] = useState(false);
+  const [isRegisterMode, setIsRegisterMode] = useState(false);
   const navigate = useNavigate();
   const tacInstanceRef = useRef<any>(null);
   const captchaContainerRef = useRef<HTMLDivElement>(null);
@@ -65,24 +69,43 @@ export default function IndexPage() {
       }
     };
   }, []);
-  // 检测是否在WebView中运行
+  // 检测是否在WebView中运行，并查询是否开放自助注册
   useEffect(() => {
     setIsWebView(isWebViewFunc());
+    getConfigByName("register_enabled")
+      .then((res) => {
+        if (res.code === 0 && res.data?.value === "true") {
+          setRegisterEnabled(true);
+        }
+      })
+      .catch(() => {});
   }, []);
   // 验证表单
   const validateForm = (): boolean => {
     const newErrors: Partial<LoginForm> = {};
+    const username = form.username.trim();
 
-    if (!form.username.trim()) {
+    if (!username) {
       newErrors.username = '请输入用户名';
+    } else if (isRegisterMode && !/^[a-zA-Z0-9_-]{3,32}$/.test(username)) {
+      newErrors.username = '用户名需为3-32位字母、数字、下划线或连字符';
     }
 
     if (!form.password.trim()) {
       newErrors.password = '请输入密码';
     } else if (form.password.length < 6) {
       newErrors.password = '密码长度至少6位';
+    } else if (isRegisterMode && form.password.length > 64) {
+      newErrors.password = '密码长度不能超过64位';
     }
 
+    if (isRegisterMode) {
+      if (!form.confirmPassword) {
+        newErrors.confirmPassword = '请再次输入密码';
+      } else if (form.confirmPassword !== form.password) {
+        newErrors.confirmPassword = '两次输入的密码不一致';
+      }
+    }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -124,7 +147,11 @@ export default function IndexPage() {
 
           setShowCaptcha(false);
           tac.destroyWindow();
-          performLogin();
+          if (isRegisterMode) {
+            performRegister(res.data.validToken);
+          } else {
+            performLogin();
+          }
         },
         validFail: (_: any, _captcha: any, tac: any) => {
           tac.reloadCaptcha();
@@ -213,6 +240,37 @@ export default function IndexPage() {
     }
   };
 
+  const performRegister = async (captchaId?: string) => {
+    try {
+      const registerData: RegisterData = {
+        username: form.username.trim(),
+        password: form.password,
+        confirmPassword: form.confirmPassword,
+        captchaId: captchaId || form.captchaId || "",
+      };
+      const response = await register(registerData);
+      if (response.code !== 0) {
+        toast.error(response.msg || "注册失败");
+        return;
+      }
+      toast.success("注册成功，请登录");
+      setIsRegisterMode(false);
+      setErrors({});
+      setForm(prev => ({
+        ...prev,
+        username: registerData.username,
+        password: "",
+        confirmPassword: "",
+        captchaId: "",
+      }));
+    } catch (error) {
+      console.error('注册错误:', error);
+      toast.error("网络错误，请稍后重试");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleLogin = async () => {
     if (loading) return;
     if (!validateForm()) return;
@@ -231,8 +289,12 @@ export default function IndexPage() {
 
       // 根据返回值决定是否显示验证码
       if (checkResponse.data === 0) {
-        // 不需要验证码，直接登录
-        await performLogin();
+        // 不需要验证码，直接登录或注册
+        if (isRegisterMode) {
+          await performRegister();
+        } else {
+          await performLogin();
+        }
       } else {
         // 需要验证码，显示验证码弹层
         setShowCaptcha(true);
@@ -278,8 +340,10 @@ export default function IndexPage() {
           <Card className="w-full">
             <CardHeader className="pb-0 pt-6 px-6 flex-col items-center">
               <PixelCatLogo size={48} className="mb-2" />
-              <h1 className={title({ size: "sm" })}>登陆</h1>
-              <p className="text-small text-default-500 mt-2">请输入您的账号信息</p>
+              <h1 className={title({ size: "sm" })}>{isRegisterMode ? "注册账号" : "登陆"}</h1>
+              <p className="text-small text-default-500 mt-2">
+                {isRegisterMode ? "创建一个新的账号" : "请输入您的账号信息"}
+              </p>
             </CardHeader>
             <CardBody className="px-6 py-6">
               <form
@@ -327,6 +391,21 @@ export default function IndexPage() {
                   )}
                 </div>
 
+                {isRegisterMode && (
+                  <Input
+                    label="确认密码"
+                    placeholder="请再次输入密码"
+                    type="password"
+                    value={form.confirmPassword}
+                    onChange={(e) => handleInputChange('confirmPassword', e.target.value)}
+                    onKeyDown={handleKeyPress}
+                    variant="bordered"
+                    isDisabled={loading}
+                    isInvalid={!!errors.confirmPassword}
+                    errorMessage={errors.confirmPassword}
+                  />
+                )}
+
                 
                 <Button
                   type="submit"
@@ -336,8 +415,27 @@ export default function IndexPage() {
                   isDisabled={loading}
                   className="mt-2"
                 >
-                  {loading ? (showCaptcha ? "验证中..." : "登录中...") : "登录"}
+                  {loading
+                    ? (showCaptcha ? "验证中..." : (isRegisterMode ? "注册中..." : "登录中..."))
+                    : (isRegisterMode ? "注册" : "登录")}
                 </Button>
+
+                {registerEnabled && (
+                  <div className="text-center pt-1">
+                    <button
+                      type="button"
+                      className="text-sm text-default-500 hover:text-foreground underline underline-offset-4 transition-colors"
+                      disabled={loading}
+                      onClick={() => {
+                        setIsRegisterMode(prev => !prev);
+                        setErrors({});
+                        setForm(prev => ({ ...prev, password: "", confirmPassword: "", captchaId: "" }));
+                      }}
+                    >
+                      {isRegisterMode ? "已有账号？返回登录" : "没有账号？立即注册"}
+                    </button>
+                  </div>
+                )}
               </form>
             </CardBody>
           </Card>

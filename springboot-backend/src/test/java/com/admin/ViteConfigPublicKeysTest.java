@@ -75,6 +75,7 @@ class ViteConfigPublicKeysTest {
         assertFalse(denied(get("captcha_enabled", null)));
         assertFalse(denied(get("captcha_type", null)));
         assertFalse(denied(get("sub_url", null)));
+        assertFalse(denied(get("register_enabled", null)));
         assertTrue(denied(get("ip", null)), "面板 IP 不能给未登录的人");
         assertTrue(denied(get("anything_else", null)));
     }
