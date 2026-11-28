@@ -225,6 +225,24 @@ class UserRegisterTest {
         assertEquals(5, userCaptor.getValue().getNum());
         assertEquals(1L, userCaptor.getValue().getFlowResetTime());
         assertTrue(userCaptor.getValue().getExpTime() > System.currentTimeMillis());
+
+        // 负数、零天有效期或脏字符配置同样安全回退默认值，且零宽字符包裹的邀请码可正常匹配
+        userService.clearRegisterRateLimitForTest();
+        configStore.put("register_invite_code", "  CAT999 , CAT999 ");
+        configStore.put("register_default_flow", "-50");
+        configStore.put("register_default_num", "-3");
+        configStore.put("register_default_exp_days", "0");
+        configStore.put("register_default_flow_reset_time", "-1");
+
+        RegisterDto negFallbackDto = validDto("\u200Bneg_safe\u3000", "secret123");
+        negFallbackDto.setInviteCode("\u200BCAT999\uFEFF");
+        R okNeg = userService.register(negFallbackDto);
+        assertEquals(0, okNeg.getCode());
+        assertEquals("neg_safe", userCaptor.getValue().getUser());
+        assertEquals(10L, userCaptor.getValue().getFlow());
+        assertEquals(5, userCaptor.getValue().getNum());
+        assertEquals(1L, userCaptor.getValue().getFlowResetTime());
+        assertTrue(userCaptor.getValue().getExpTime() > System.currentTimeMillis() + 29L * 86400_000L);
     }
 
     @Test

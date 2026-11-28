@@ -389,4 +389,21 @@ class UserServiceImplTest {
         assertEquals(0, tunnelOk.getCode());
         verify(userTunnelService).updateById(argThat(t -> t.getInFlow() == 0L && t.getOutFlow() == 0L));
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void getAllUsers_stripsPasswordHashesFromReturnedList() {
+        User u1 = sampleUser(10L, "alice", "secret1", 1, 1);
+        User u2 = sampleUser(11L, "bob", "secret2", 1, 0);
+        doReturn(java.util.Arrays.asList(u1, u2)).when(userService).list(any(QueryWrapper.class));
+
+        R res = userService.getAllUsers();
+        assertEquals(0, res.getCode());
+        java.util.List<User> list = (java.util.List<User>) res.getData();
+        assertEquals(2, list.size());
+        assertNull(list.get(0).getPwd(), "列表接口不得返回用户密码哈希");
+        assertNull(list.get(1).getPwd(), "列表接口不得返回用户密码哈希");
+        assertEquals("alice", list.get(0).getUser());
+        assertEquals("bob", list.get(1).getUser());
+    }
 }

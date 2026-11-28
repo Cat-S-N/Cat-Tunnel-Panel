@@ -230,7 +230,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 getConfigValue(com.admin.common.utils.RegisterConfigRule.KEY_REGISTER_INVITE_CODE));
         boolean inviteRequired = !validInviteCodes.isEmpty();
         if (inviteRequired) {
-            String submittedInvite = registerDto.getInviteCode() == null ? "" : registerDto.getInviteCode().trim();
+            String submittedInvite = com.admin.common.utils.RegisterConfigRule.trimUnicodeBlank(registerDto.getInviteCode());
             if (submittedInvite.isEmpty()) {
                 return R.err("请输入邀请码");
             }
@@ -239,7 +239,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             }
         }
 
-        String username = registerDto.getUsername() == null ? "" : registerDto.getUsername().trim();
+        String username = com.admin.common.utils.RegisterConfigRule.trimUnicodeBlank(registerDto.getUsername());
         if (!REGISTER_USERNAME_PATTERN.matcher(username).matches()) {
             return R.err("用户名需为3-32位字母、数字、下划线或连字符");
         }
@@ -261,17 +261,21 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
         long now = System.currentTimeMillis();
         long defaultFlow = parseBoundedLongConfig(
-                com.admin.common.utils.RegisterConfigRule.KEY_DEFAULT_FLOW, 10L,
+                com.admin.common.utils.RegisterConfigRule.KEY_DEFAULT_FLOW,
+                com.admin.common.utils.RegisterConfigRule.DEFAULT_FLOW_GB,
                 0L, com.admin.common.utils.RegisterConfigRule.MAX_DEFAULT_FLOW_GB);
         int defaultNum = (int) parseBoundedLongConfig(
-                com.admin.common.utils.RegisterConfigRule.KEY_DEFAULT_NUM, 5L,
+                com.admin.common.utils.RegisterConfigRule.KEY_DEFAULT_NUM,
+                com.admin.common.utils.RegisterConfigRule.DEFAULT_NUM,
                 0L, com.admin.common.utils.RegisterConfigRule.MAX_DEFAULT_NUM);
         long defaultExpDays = parseBoundedLongConfig(
-                com.admin.common.utils.RegisterConfigRule.KEY_DEFAULT_EXP_DAYS, 30L,
+                com.admin.common.utils.RegisterConfigRule.KEY_DEFAULT_EXP_DAYS,
+                com.admin.common.utils.RegisterConfigRule.DEFAULT_EXP_DAYS,
                 com.admin.common.utils.RegisterConfigRule.MIN_DEFAULT_EXP_DAYS,
                 com.admin.common.utils.RegisterConfigRule.MAX_DEFAULT_EXP_DAYS);
         long defaultFlowResetTime = parseBoundedLongConfig(
-                com.admin.common.utils.RegisterConfigRule.KEY_DEFAULT_FLOW_RESET_TIME, 1L,
+                com.admin.common.utils.RegisterConfigRule.KEY_DEFAULT_FLOW_RESET_TIME,
+                com.admin.common.utils.RegisterConfigRule.DEFAULT_FLOW_RESET_DAY,
                 0L, com.admin.common.utils.RegisterConfigRule.MAX_FLOW_RESET_DAY);
 
         User user = new User();
@@ -426,19 +430,8 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     private long parseBoundedLongConfig(String key, long fallback, long minInclusive, long maxInclusive) {
-        String raw = getConfigValue(key);
-        if (StringUtils.isBlank(raw)) {
-            return fallback;
-        }
-        try {
-            long val = Long.parseLong(raw.trim());
-            if (val < minInclusive || val > maxInclusive) {
-                return fallback;
-            }
-            return val;
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
+        return com.admin.common.utils.RegisterConfigRule.resolveBoundedLong(
+                getConfigValue(key), fallback, minInclusive, maxInclusive);
     }
 
     /**
@@ -469,14 +462,21 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     /**
-     * 获取所有用户（分页）
-     * 支持关键字搜索，排除管理员用户，清除密码信息
+     * 获取所有用户（排除管理员用户，并抹除密码哈希等敏感凭据）
      *
-     * @return 分页用户列表响应
+     * @return 用户列表响应
      */
     @Override
     public R getAllUsers() {
-        return R.ok(this.list(new QueryWrapper<User>().ne("role_id", ADMIN_ROLE_ID)));
+        List<User> users = this.list(new QueryWrapper<User>().ne("role_id", ADMIN_ROLE_ID));
+        if (users != null) {
+            for (User u : users) {
+                if (u != null) {
+                    u.setPwd(null);
+                }
+            }
+        }
+        return R.ok(users);
     }
 
     /**

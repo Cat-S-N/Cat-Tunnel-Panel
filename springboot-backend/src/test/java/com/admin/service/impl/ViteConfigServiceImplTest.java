@@ -256,13 +256,13 @@ class ViteConfigServiceImplTest {
         Map<String, String> badExp = Collections.singletonMap("register_default_exp_days", "0");
         assertNotEquals(0, viteConfigService.updateConfigs(badExp).getCode());
 
-        // 合法配置并规范化邀请码（去空项、去空白）
+        // 合法配置并规范化邀请码（去空项、去空白、去重复项）与前导零
         doReturn(null).when(viteConfigService).getOne(any(QueryWrapper.class));
         doReturn(true).when(viteConfigService).save(any(ViteConfig.class));
 
         Map<String, String> validBatch = new LinkedHashMap<>();
-        validBatch.put("register_invite_code", " VIP_1 , , VIP_2 , ");
-        validBatch.put("register_default_flow", "100");
+        validBatch.put("register_invite_code", " VIP_1 , , VIP_2 , VIP_1 , \u3000VIP_3\u200B ");
+        validBatch.put("register_default_flow", " 0100 ");
         validBatch.put("register_default_num", "10");
         validBatch.put("register_default_exp_days", "365");
         validBatch.put("register_default_flow_reset_time", "0");
@@ -276,6 +276,34 @@ class ViteConfigServiceImplTest {
                 .filter(c -> "register_invite_code".equals(c.getName()))
                 .findFirst()
                 .orElseThrow(AssertionError::new);
-        assertEquals("VIP_1,VIP_2", savedInvite.getValue());
+        assertEquals("VIP_1,VIP_2,VIP_3", savedInvite.getValue());
+
+        ViteConfig savedFlow = captor.getAllValues().stream()
+                .filter(c -> "register_default_flow".equals(c.getName()))
+                .findFirst()
+                .orElseThrow(AssertionError::new);
+        assertEquals("100", savedFlow.getValue());
+    }
+
+    @Test
+    void updateConfig_allowsClearingOptionalRegisterQuotaKeysAndRejectsInvalidSingleUpdate() {
+        ViteConfig existingFlow = sampleConfig(11L, "register_default_flow", "50");
+        doReturn(existingFlow).when(viteConfigService).getOne(any(QueryWrapper.class));
+        doReturn(true).when(viteConfigService).updateById(any(ViteConfig.class));
+
+        R cleared = viteConfigService.updateConfig("register_default_flow", "   ");
+        assertEquals(0, cleared.getCode());
+        assertEquals("", existingFlow.getValue());
+
+        R badNegative = viteConfigService.updateConfig("register_default_flow", "-10");
+        assertNotEquals(0, badNegative.getCode());
+
+        StringBuilder over128 = new StringBuilder();
+        for (int i = 0; i < 129; i++) {
+            over128.append('X');
+        }
+        R badSingleInvite = viteConfigService.updateConfig("register_invite_code", over128.toString());
+        assertNotEquals(0, badSingleInvite.getCode());
+        assertTrue(badSingleInvite.getMsg().contains("128"));
     }
 }

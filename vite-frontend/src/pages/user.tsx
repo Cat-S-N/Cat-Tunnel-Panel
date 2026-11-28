@@ -84,6 +84,14 @@ const formatDate = (timestamp: number): string => {
   return new Date(timestamp).toLocaleString();
 };
 
+const formatCompactDateTime = (timestamp?: number): string => {
+  if (!timestamp || timestamp <= 0) return '-';
+  const d = new Date(timestamp);
+  if (Number.isNaN(d.getTime())) return '-';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
 const getExpireStatus = (expTime: number) => {
   const now = Date.now();
   if (expTime < now) {
@@ -109,7 +117,8 @@ const calculateUserTotalUsedFlow = (user: User): number => {
   return (user.inFlow || 0) + (user.outFlow || 0);
 };
 
-const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const SEVEN_DAYS_MS = 7 * ONE_DAY_MS;
 
 const getUserFlowPercent = (user: User): number => {
   if (!user.flow || user.flow <= 0) return 0;
@@ -122,11 +131,25 @@ const isUserExpired = (user: User, now: number): boolean =>
 const isUserExpiringSoon = (user: User, now: number): boolean =>
   Boolean(user.expTime && user.expTime > 0 && user.expTime >= now && user.expTime - now <= SEVEN_DAYS_MS);
 
+const isUserRecentlyCreated = (user: User, now: number): boolean =>
+  Boolean(user.createdTime && user.createdTime > 0 && now - user.createdTime <= SEVEN_DAYS_MS);
+
+const isUserCreatedWithin24h = (user: User, now: number): boolean =>
+  Boolean(user.createdTime && user.createdTime > 0 && now - user.createdTime <= ONE_DAY_MS);
+
 const isUserFlowWarning = (user: User): boolean =>
   Boolean(user.flow && user.flow > 0 && getUserFlowPercent(user) >= 90);
 
-type UserStatusFilter = 'all' | 'active' | 'expiring' | 'expired' | 'flow_warning' | 'disabled';
-type UserSortBy = 'default' | 'flow_desc' | 'exp_asc';
+type UserStatusFilter =
+  | 'all'
+  | 'active'
+  | 'disabled'
+  | 'recent'
+  | 'expiring_or_expired'
+  | 'expiring'
+  | 'expired'
+  | 'flow_warning';
+type UserSortBy = 'default' | 'created_desc' | 'flow_desc' | 'exp_asc';
 
 const calculateTunnelUsedFlow = (tunnel: UserTunnel): number => {
   const inFlow = tunnel.inFlow || 0;
@@ -147,46 +170,83 @@ export default function UserPage() {
   const userStats = useMemo(() => {
     const now = Date.now();
     let active = 0;
+    let recent = 0;
     let expiring = 0;
     let expired = 0;
+    let expiringOrExpired = 0;
     let flowWarning = 0;
     let disabled = 0;
     for (const u of users) {
       const exp = isUserExpired(u, now);
+      const expSoon = isUserExpiringSoon(u, now);
       if (u.status !== 1) {
         disabled += 1;
       } else if (!exp) {
         active += 1;
       }
+      if (isUserRecentlyCreated(u, now)) recent += 1;
       if (exp) expired += 1;
-      if (isUserExpiringSoon(u, now)) expiring += 1;
+      if (expSoon) expiring += 1;
+      if (exp || expSoon) expiringOrExpired += 1;
       if (isUserFlowWarning(u)) flowWarning += 1;
     }
-    return { total: users.length, active, expiring, expired, flowWarning, disabled };
+    return {
+      total: users.length,
+      active,
+      recent,
+      expiring,
+      expired,
+      expiringOrExpired,
+      flowWarning,
+      disabled,
+    };
   }, [users]);
 
   const displayedUsers = useMemo(() => {
     const now = Date.now();
+    const normalizedKeyword = searchKeyword.trim().toLowerCase();
     const filtered = users.filter((u) => {
+      if (normalizedKeyword) {
+        const usernameMatch = (u.user || '').toLowerCase().includes(normalizedKeyword);
+        const nameMatch = (u.name || '').toLowerCase().includes(normalizedKeyword);
+        const idMatch = `#${u.id}` === normalizedKeyword || String(u.id) === normalizedKeyword;
+        if (!usernameMatch && !nameMatch && !idMatch) {
+          return false;
+        }
+      }
       if (statusFilter === 'active') return u.status === 1 && !isUserExpired(u, now);
+      if (statusFilter === 'disabled') return u.status !== 1;
+      if (statusFilter === 'recent') return isUserRecentlyCreated(u, now);
+      if (statusFilter === 'expiring_or_expired') return isUserExpired(u, now) || isUserExpiringSoon(u, now);
       if (statusFilter === 'expiring') return isUserExpiringSoon(u, now);
       if (statusFilter === 'expired') return isUserExpired(u, now);
       if (statusFilter === 'flow_warning') return isUserFlowWarning(u);
-      if (statusFilter === 'disabled') return u.status !== 1;
       return true;
     });
+    if (sortBy === 'created_desc') {
+      return [...filtered].sort((a, b) => {
+        const timeDiff = (b.createdTime || 0) - (a.createdTime || 0);
+        if (timeDiff !== 0) return timeDiff;
+        return (b.id || 0) - (a.id || 0);
+      });
+    }
     if (sortBy === 'flow_desc') {
-      return [...filtered].sort((a, b) => getUserFlowPercent(b) - getUserFlowPercent(a));
+      return [...filtered].sort((a, b) => {
+        const pctDiff = getUserFlowPercent(b) - getUserFlowPercent(a);
+        if (pctDiff !== 0) return pctDiff;
+        return calculateUserTotalUsedFlow(b) - calculateUserTotalUsedFlow(a);
+      });
     }
     if (sortBy === 'exp_asc') {
       return [...filtered].sort((a, b) => {
         const aExp = a.expTime && a.expTime > 0 ? a.expTime : Number.MAX_SAFE_INTEGER;
         const bExp = b.expTime && b.expTime > 0 ? b.expTime : Number.MAX_SAFE_INTEGER;
-        return aExp - bExp;
+        if (aExp !== bExp) return aExp - bExp;
+        return (b.id || 0) - (a.id || 0);
       });
     }
     return filtered;
-  }, [users, statusFilter, sortBy]);
+  }, [users, searchKeyword, statusFilter, sortBy]);
   const [pagination, setPagination] = useState<PaginationType>({
     current: 1,
     size: 10,
@@ -354,10 +414,13 @@ export default function UserPage() {
 
   // 生命周期
   useEffect(() => {
-    loadUsers();
     loadTunnels();
     loadSpeedLimits();
-  }, [pagination.current, pagination.size, searchKeyword]);
+  }, []);
+
+  useEffect(() => {
+    loadUsers();
+  }, [pagination.current, pagination.size]);
 
   // 数据加载函数
   const loadUsers = async () => {
@@ -366,12 +429,17 @@ export default function UserPage() {
       const response = await getAllUsers({
         current: pagination.current,
         size: pagination.size,
-        keyword: searchKeyword
+        keyword: searchKeyword.trim()
       });
       
       if (response.code === 0) {
-        const data = response.data || {};
-        setUsers(data || []);
+        const rawData: any = response.data;
+        const list: User[] = Array.isArray(rawData)
+          ? rawData
+          : Array.isArray(rawData?.records)
+          ? rawData.records
+          : [];
+        setUsers(list);
       } else {
         toast.error(response.msg || '获取用户列表失败');
       }
@@ -713,69 +781,119 @@ export default function UserPage() {
   return (
     
       <div className="px-3 lg:px-6 py-8">
-      {/* 页面头部 */}
+      {/* 页面头部：搜索操作栏 + 快速状态筛选 + 多维排序 */}
       <div className="flex flex-col gap-3 mb-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <Chip size="sm" variant="flat" color="default">
-            总用户：{userStats.total}
-          </Chip>
-          <Chip size="sm" variant="flat" color="success">
-            正常：{userStats.active}
-          </Chip>
-          <Chip size="sm" variant="flat" color={userStats.expiring > 0 ? "warning" : "default"}>
-            7天内到期：{userStats.expiring}
-          </Chip>
-          <Chip size="sm" variant="flat" color={userStats.expired > 0 ? "danger" : "default"}>
-            已到期：{userStats.expired}
-          </Chip>
-          <Chip size="sm" variant="flat" color={userStats.flowWarning > 0 ? "warning" : "default"}>
-            流量预警(≥90%)：{userStats.flowWarning}
-          </Chip>
-          <Chip size="sm" variant="flat" color={userStats.disabled > 0 ? "danger" : "default"}>
-            已禁用：{userStats.disabled}
-          </Chip>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex flex-wrap items-center gap-1">
-            {(
-              [
-                { key: 'all', label: '全部' },
-                { key: 'active', label: '正常' },
-                { key: 'expiring', label: '即将到期' },
-                { key: 'expired', label: '已到期' },
-                { key: 'flow_warning', label: '流量预警' },
-                { key: 'disabled', label: '已禁用' },
-              ] as const
-            ).map((item) => (
-              <Button
-                key={item.key}
-                size="sm"
-                variant={statusFilter === item.key ? 'solid' : 'flat'}
-                color={
-                  statusFilter === item.key
-                    ? item.key === 'expired' || item.key === 'disabled'
-                      ? 'danger'
-                      : item.key === 'expiring' || item.key === 'flow_warning'
-                      ? 'warning'
-                      : item.key === 'active'
-                      ? 'success'
-                      : 'primary'
-                    : 'default'
-                }
-                onPress={() => setStatusFilter(item.key)}
-              >
-                {item.label}
-              </Button>
-            ))}
+        <div className="flex flex-col sm:flex-row gap-2.5 items-stretch sm:items-center justify-between">
+          <div className="flex items-center gap-2 flex-1 max-w-lg">
+            <Input
+              value={searchKeyword}
+              onChange={(e) => setSearchKeyword(e.target.value)}
+              placeholder="搜索用户名 / 备注 / #ID（按 / 聚焦）"
+              startContent={<SearchIcon className="w-4 h-4 text-default-400 shrink-0" />}
+              endContent={
+                searchKeyword ? (
+                  <button
+                    type="button"
+                    onClick={() => setSearchKeyword('')}
+                    className="text-xs text-default-400 hover:text-foreground px-1 shrink-0"
+                    aria-label="清空搜索词"
+                  >
+                    清空
+                  </button>
+                ) : undefined
+              }
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              className="flex-1"
+              classNames={{
+                base: "bg-default-100",
+                input: "bg-transparent text-sm",
+                inputWrapper: "bg-default-100 border-2 border-default-200 hover:border-default-300 focus-within:border-primary data-[hover=true]:border-default-300"
+              }}
+            />
+            <Button
+              onPress={handleSearch}
+              variant="solid"
+              color="primary"
+              isIconOnly
+              title="刷新并搜索用户列表"
+              aria-label="刷新并搜索用户列表"
+              className="min-h-10 w-10 shrink-0"
+            >
+              <SearchIcon className="w-4 h-4" />
+            </Button>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1">
+          <div className="flex items-center justify-between sm:justify-end gap-2">
+            {(statusFilter !== 'all' || sortBy !== 'default' || searchKeyword.trim() !== '') && (
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-mono tabular-nums text-default-500">
+                  匹配 {displayedUsers.length}/{userStats.total}
+                </span>
+                <Button
+                  size="sm"
+                  variant="light"
+                  color="default"
+                  className="h-8 min-w-0 px-2 text-xs"
+                  onPress={() => {
+                    setSearchKeyword('');
+                    setStatusFilter('all');
+                    setSortBy('default');
+                  }}
+                >
+                  重置
+                </Button>
+              </div>
+            )}
+            <Button
+              variant="flat"
+              color="primary"
+              onPress={handleAdd}
+              className="shrink-0"
+            >
+              新增用户
+            </Button>
+          </div>
+        </div>
+
+        <div className="tms-subpanel rounded-md border border-default-200 bg-default-50/70 p-2.5 flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-xs text-default-500 mr-0.5 select-none">状态筛选:</span>
+            {(
+              [
+                { key: 'all', label: '全部', count: userStats.total, tone: 'primary' as const },
+                { key: 'active', label: '正常', count: userStats.active, tone: 'success' as const },
+                { key: 'disabled', label: '禁用', count: userStats.disabled, tone: 'danger' as const },
+                { key: 'recent', label: '近7天新注册', count: userStats.recent, tone: 'primary' as const },
+                { key: 'expiring_or_expired', label: '即将/已到期', count: userStats.expiringOrExpired, tone: 'warning' as const },
+                { key: 'expiring', label: '7天内到期', count: userStats.expiring, tone: 'warning' as const },
+                { key: 'expired', label: '已到期', count: userStats.expired, tone: 'danger' as const },
+                { key: 'flow_warning', label: '流量预警(≥90%)', count: userStats.flowWarning, tone: 'warning' as const },
+              ] as const
+            ).map((item) => {
+              const active = statusFilter === item.key;
+              return (
+                <Button
+                  key={item.key}
+                  size="sm"
+                  variant={active ? 'solid' : 'flat'}
+                  color={active ? item.tone : 'default'}
+                  className="h-7 min-w-0 px-2.5 text-xs font-mono tabular-nums"
+                  onPress={() => setStatusFilter(item.key)}
+                >
+                  {item.label} ({item.count})
+                </Button>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5 pt-2 lg:pt-0 border-t lg:border-t-0 border-divider">
+            <span className="text-xs text-default-500 mr-0.5 select-none">排序:</span>
             {(
               [
                 { key: 'default', label: '默认排序' },
-                { key: 'flow_desc', label: '流量使用率降序' },
-                { key: 'exp_asc', label: '到期时间升序' },
+                { key: 'created_desc', label: '最新注册优先' },
+                { key: 'flow_desc', label: '流量使用率' },
+                { key: 'exp_asc', label: '到期时间' },
               ] as const
             ).map((item) => (
               <Button
@@ -783,48 +901,13 @@ export default function UserPage() {
                 size="sm"
                 variant={sortBy === item.key ? 'solid' : 'flat'}
                 color={sortBy === item.key ? 'secondary' : 'default'}
+                className="h-7 min-w-0 px-2.5 text-xs"
                 onPress={() => setSortBy(item.key)}
               >
                 {item.label}
               </Button>
             ))}
           </div>
-        </div>
-        
-        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
-          <div className="flex items-center gap-3 flex-1 max-w-md">
-            <Input
-              value={searchKeyword}
-              onChange={(e) => setSearchKeyword(e.target.value)}
-              placeholder="搜索用户名"
-              startContent={<SearchIcon className="w-4 h-4 text-default-400" />}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-              className="flex-1"
-              classNames={{
-                base: "bg-default-100",
-                input: "bg-transparent",
-                inputWrapper: "bg-default-100 border-2 border-default-200 hover:border-default-300 focus-within:border-primary data-[hover=true]:border-default-300"
-              }}
-            />
-            <Button
-              onClick={handleSearch}
-              variant="solid"
-              color="primary"
-              isIconOnly
-              className="min-h-10 w-10"
-            >
-              <SearchIcon className="w-4 h-4" />
-            </Button>
-          </div>
-          
-          <Button
-              variant="flat"
-              color="primary"
-              onPress={handleAdd}
-             
-            >
-              新增
-            </Button>
         </div>
       </div>
 
@@ -855,17 +938,18 @@ export default function UserPage() {
           <CardBody className="text-center py-14">
             <div className="flex flex-col items-center gap-3">
               <h3 className="text-base font-semibold text-foreground">无匹配用户</h3>
-              <p className="text-default-500 text-sm">当前筛选条件下没有匹配的用户</p>
+              <p className="text-default-500 text-sm">当前搜索关键字或筛选条件下没有匹配的用户</p>
               <Button
                 size="sm"
                 color="primary"
                 variant="flat"
                 onPress={() => {
+                  setSearchKeyword('');
                   setStatusFilter('all');
                   setSortBy('default');
                 }}
               >
-                重置筛选
+                重置搜索与筛选
               </Button>
             </div>
           </CardBody>
@@ -873,10 +957,13 @@ export default function UserPage() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
           {displayedUsers.map((user) => {
+            const now = Date.now();
             const userStatus = getUserStatus(user);
             const expStatus = user.expTime ? getExpireStatus(user.expTime) : null;
             const usedFlow = calculateUserTotalUsedFlow(user);
-            const flowPercent = user.flow > 0 ? Math.min((usedFlow / (user.flow * 1024 * 1024 * 1024)) * 100, 100) : 0;
+            const rawFlowPercent = getUserFlowPercent(user);
+            const flowPercent = user.flow > 0 ? Math.min(rawFlowPercent, 100) : 0;
+            const isNew24h = isUserCreatedWithin24h(user, now);
             
             return (
               <Card 
@@ -884,14 +971,28 @@ export default function UserPage() {
                 className="shadow-sm border border-divider hover:shadow-md transition-shadow duration-200"
               >
                 <CardHeader className="pb-2">
-                  <div className="flex justify-between items-start w-full">
+                  <div className="flex justify-between items-start w-full gap-2">
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-foreground truncate text-sm">
-                        {user.name || user.user}
-                      </h3>
-                      <p className="text-xs text-default-500 truncate">@{user.user}</p>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <h3 className="font-semibold text-foreground truncate text-sm">
+                          {user.name || user.user}
+                        </h3>
+                        {isNew24h && (
+                          <Chip
+                            size="sm"
+                            variant="flat"
+                            color="primary"
+                            className="h-4 px-1 text-[10px] shrink-0"
+                          >
+                            新注册
+                          </Chip>
+                        )}
+                      </div>
+                      <p className="text-xs text-default-500 truncate font-mono">
+                        @{user.user} · #{user.id}
+                      </p>
                     </div>
-                    <div className="flex items-center gap-1.5 ml-2">
+                    <div className="flex items-center gap-1 shrink-0">
                       <Chip 
                         color={userStatus.color} 
                         variant="flat" 
@@ -910,16 +1011,21 @@ export default function UserPage() {
                     <div className="space-y-1.5">
                       <div className="flex justify-between text-sm">
                         <span className="text-default-600">账号总流量</span>
-                        <span className="font-medium text-xs">{user.flow > 0 ? formatFlow(user.flow, 'gb') : '不限'}</span>
+                        <span className="font-medium font-mono tabular-nums text-xs">
+                          {user.flow > 0 ? formatFlow(user.flow, 'gb') : '不限'}
+                        </span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-default-600">已使用</span>
-                        <span className="font-medium text-xs text-danger">{formatFlow(usedFlow)}</span>
+                        <span className="font-medium font-mono tabular-nums text-xs text-danger">
+                          {formatFlow(usedFlow)}
+                          {user.flow > 0 ? ` (${rawFlowPercent.toFixed(1)}%)` : ''}
+                        </span>
                       </div>
                       <Progress 
                         size="sm" 
                         value={flowPercent}
-                        color={flowPercent > 90 ? 'danger' : flowPercent > 70 ? 'warning' : 'success'}
+                        color={flowPercent >= 90 ? 'danger' : flowPercent > 70 ? 'warning' : 'success'}
                         className="mt-1"
                         aria-label={`流量使用 ${flowPercent.toFixed(1)}%`}
                       />
@@ -929,19 +1035,29 @@ export default function UserPage() {
                     <div className="space-y-1.5 pt-2 border-t border-divider">
                       <div className="flex justify-between text-sm">
                         <span className="text-default-600">转发数量</span>
-                        <span className="font-medium text-xs">{user.num}</span>
+                        <span className="font-medium font-mono tabular-nums text-xs">{user.num}</span>
                       </div>
                       <div className="flex justify-between text-sm">
                         <span className="text-default-600">重置日期</span>
-                        <span className="text-xs">{user.flowResetTime === 0 ? '不重置' : `每月${user.flowResetTime}号`}</span>
+                        <span className="text-xs font-mono tabular-nums">
+                          {user.flowResetTime === 0 ? '不重置' : `每月${user.flowResetTime}号`}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-default-600">注册时间</span>
+                        <span className="text-xs font-mono tabular-nums text-default-500">
+                          {formatCompactDateTime(user.createdTime)}
+                        </span>
                       </div>
                       {/* 用 > 0 而不是直接判真:expTime=0 是「永久」,`0 &&` 会把 0 渲染出来 */}
-                      {!!user.expTime && user.expTime > 0 && (
-                        <div className="flex justify-between text-sm">
+                      {!!user.expTime && user.expTime > 0 ? (
+                        <div className="flex justify-between items-center text-sm">
                           <span className="text-default-600">过期时间</span>
                           <div className="text-right">
                             {expStatus && expStatus.color === 'success' ? (
-                              <div className="text-xs">{formatDate(user.expTime)}</div>
+                              <div className="text-xs font-mono tabular-nums">
+                                {formatCompactDateTime(user.expTime)}
+                              </div>
                             ) : (
                               <Chip 
                                 color={expStatus?.color || 'default'} 
@@ -953,6 +1069,11 @@ export default function UserPage() {
                               </Chip>
                             )}
                           </div>
+                        </div>
+                      ) : (
+                        <div className="flex justify-between text-sm">
+                          <span className="text-default-600">过期时间</span>
+                          <span className="text-xs font-mono text-default-500">永久有效</span>
                         </div>
                       )}
                     </div>

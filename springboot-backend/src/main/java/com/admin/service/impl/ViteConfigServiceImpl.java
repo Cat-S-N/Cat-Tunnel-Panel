@@ -136,8 +136,8 @@ public class ViteConfigServiceImpl extends ServiceImpl<ViteConfigMapper, ViteCon
                 }
                 if (SubUrlRule.KEY.equals(name)) {
                     value = subUrl;
-                } else if (RegisterConfigRule.KEY_REGISTER_INVITE_CODE.equals(name)) {
-                    value = RegisterConfigRule.normalizeInviteCodes(value);
+                } else {
+                    value = RegisterConfigRule.normalizeConfigValue(name, value);
                 }
 
                 updateOrCreateConfig(name, value == null ? "" : value);
@@ -161,7 +161,7 @@ public class ViteConfigServiceImpl extends ServiceImpl<ViteConfigMapper, ViteCon
         if (!StringUtils.hasText(name)) {
             return R.err(ERROR_CONFIG_NAME_REQUIRED);
         }
-        boolean allowEmpty = RegisterConfigRule.KEY_REGISTER_INVITE_CODE.equals(name);
+        boolean allowEmpty = RegisterConfigRule.allowsEmptyConfigValue(name);
         if (!allowEmpty && !StringUtils.hasText(value)) {
             return R.err(ERROR_CONFIG_VALUE_REQUIRED);
         }
@@ -176,9 +176,7 @@ public class ViteConfigServiceImpl extends ServiceImpl<ViteConfigMapper, ViteCon
             if (why != null) {
                 return R.err(why);
             }
-            if (RegisterConfigRule.KEY_REGISTER_INVITE_CODE.equals(name)) {
-                value = RegisterConfigRule.normalizeInviteCodes(value);
-            }
+            value = RegisterConfigRule.normalizeConfigValue(name, value);
         }
 
         try {

@@ -60,17 +60,75 @@ interface ValidationResult {
   hint?: string;
 }
 
+const INVITE_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+const INVITE_CODE_LENGTH = 12;
+const MAX_INVITE_CONFIG_LEN = 512;
+const MAX_SINGLE_INVITE_CODE_LEN = 128;
+
+const trimInviteToken = (raw?: string): string => {
+  if (!raw) return '';
+  return raw.replace(/^[\s\u200B-\u200D\uFEFF]+|[\s\u200B-\u200D\uFEFF]+$/g, '');
+};
+
 const parseValidInviteCodes = (raw?: string): string[] => {
   if (!raw) return [];
-  return raw
-    .split(',')
-    .map((item) => item.trim())
-    .filter((item) => item.length > 0);
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const part of raw.split(',')) {
+    const trimmed = trimInviteToken(part);
+    if (trimmed.length > 0 && !seen.has(trimmed)) {
+      seen.add(trimmed);
+      result.push(trimmed);
+    }
+  }
+  return result;
+};
+
+// 使用 crypto.getRandomValues 无模偏差采样生成 12 位无歧义大写字母+数字邀请码
+const generateSecureInviteCode = (length: number = INVITE_CODE_LENGTH): string => {
+  const cryptoObj = typeof window !== 'undefined' ? window.crypto : undefined;
+  if (!cryptoObj || typeof cryptoObj.getRandomValues !== 'function') {
+    throw new Error('当前运行环境不支持安全随机数生成器');
+  }
+  const alphabetLen = INVITE_CODE_ALPHABET.length;
+  const maxUnbiased = Math.floor(256 / alphabetLen) * alphabetLen;
+  const chars: string[] = [];
+  const buffer = new Uint8Array(length * 2);
+  while (chars.length < length) {
+    cryptoObj.getRandomValues(buffer);
+    for (let i = 0; i < buffer.length && chars.length < length; i++) {
+      const byte = buffer[i];
+      if (byte < maxUnbiased) {
+        chars.push(INVITE_CODE_ALPHABET[byte % alphabetLen]);
+      }
+    }
+  }
+  return chars.join('');
+};
+
+const resolveBoundedQuotaPreview = (
+  raw: string | undefined,
+  fallback: number,
+  min: number,
+  max: number
+): { value: number; isDefault: boolean; isInvalid: boolean } => {
+  const trimmed = trimInviteToken(raw);
+  if (!trimmed) {
+    return { value: fallback, isDefault: true, isInvalid: false };
+  }
+  if (!/^\d+$/.test(trimmed)) {
+    return { value: fallback, isDefault: false, isInvalid: true };
+  }
+  const num = Number(trimmed);
+  if (!Number.isSafeInteger(num) || num < min || num > max) {
+    return { value: fallback, isDefault: false, isInvalid: true };
+  }
+  return { value: num, isDefault: false, isInvalid: false };
 };
 
 // 关键配置项格式校验与默认值/范围提示
 const validateConfigValue = (key: string, rawValue?: string): ValidationResult => {
-  const value = (rawValue || '').trim();
+  const value = trimInviteToken(rawValue);
   if (!value) {
     if (key === 'register_invite_code') {
       return { hint: '当前未设置邀请码：开放注册期间任何访客均可直接注册' };
@@ -112,17 +170,32 @@ const validateConfigValue = (key: string, rawValue?: string): ValidationResult =
       return { hint: '建议使用 IP:PORT 格式（例如 1.2.3.4:6365）' };
     }
   } else if (key === 'register_invite_code') {
+    if (rawValue && /[\r\n]/.test(rawValue)) {
+      return { error: '邀请码不能包含换行符，多个邀请码请使用英文半角逗号 (,) 分隔' };
+    }
     if (value.includes('，')) {
       return { error: '检测到中文逗号（，），多个邀请码请改用英文半角逗号 (,) 分隔' };
     }
-    if (value.length > 512) {
-      return { error: '邀请码配置总长度不能超过 512 个字符' };
+    if (value.length > MAX_INVITE_CONFIG_LEN) {
+      return { error: `邀请码配置总长度不能超过 ${MAX_INVITE_CONFIG_LEN} 个字符` };
     }
+    const rawSegments = value
+      .split(',')
+      .map((s) => trimInviteToken(s))
+      .filter((s) => s.length > 0);
     const validCodes = parseValidInviteCodes(value);
     if (validCodes.length === 0) {
       return { error: '未解析到有效邀请码，若不启用请直接清空输入框' };
     }
-    return { hint: `已识别 ${validCodes.length} 个有效邀请码，保存后登录页将要求填写邀请码` };
+    if (validCodes.some((code) => code.length > MAX_SINGLE_INVITE_CODE_LEN)) {
+      return { error: `单个邀请码长度不能超过 ${MAX_SINGLE_INVITE_CODE_LEN} 个字符` };
+    }
+    const duplicateCount = rawSegments.length - validCodes.length;
+    return {
+      hint: duplicateCount > 0
+        ? `已识别 ${validCodes.length} 个有效邀请码（含 ${duplicateCount} 个重复项，保存时自动去重）`
+        : `已识别 ${validCodes.length} 个有效邀请码，保存后登录页将要求填写邀请码`,
+    };
   } else if (key === 'register_default_flow') {
     const n = Number(value);
     if (!/^\d+$/.test(value) || n < 0 || n > 1000000) {
@@ -525,6 +598,12 @@ export default function ConfigPage() {
         if (typeof saved.register_invite_code === 'string') {
           saved.register_invite_code = parseValidInviteCodes(saved.register_invite_code).join(',');
         }
+        (['register_default_flow', 'register_default_num', 'register_default_exp_days', 'register_default_flow_reset_time'] as const).forEach((k) => {
+          if (typeof saved[k] === 'string') {
+            const trimmed = trimInviteToken(saved[k]);
+            saved[k] = trimmed && /^\d+$/.test(trimmed) ? String(Number(trimmed)) : trimmed;
+          }
+        });
         setConfigs(saved);
         setOriginalConfigs(saved);
         setHasChanges(false);
@@ -570,6 +649,205 @@ export default function ConfigPage() {
   };
 
 
+
+  // 生成 12 位安全邀请码（已有内容时自动用英文逗号追加，为空时直接填入）
+  const handleGenerateInviteCode = () => {
+    try {
+      const newCode = generateSecureInviteCode(INVITE_CODE_LENGTH);
+      const existingNormalized = (configs.register_invite_code || '').replace(/，/g, ',');
+      const existingCodes = parseValidInviteCodes(existingNormalized);
+      const nextValue = existingCodes.length > 0 ? [...existingCodes, newCode].join(',') : newCode;
+      if (nextValue.length > MAX_INVITE_CONFIG_LEN) {
+        toast.error(`邀请码总长度不能超过 ${MAX_INVITE_CONFIG_LEN} 个字符，请先清理旧邀请码`);
+        return;
+      }
+      handleConfigChange('register_invite_code', nextValue);
+      setRevealedKeys((prev) => ({ ...prev, register_invite_code: true }));
+      if (existingCodes.length > 0) {
+        toast.success(`已追加新邀请码：${newCode}（共 ${existingCodes.length + 1} 个，请保存配置生效）`);
+      } else {
+        toast.success(`已生成邀请码：${newCode}（请保存配置生效）`);
+      }
+    } catch {
+      toast.error('生成安全邀请码失败，请手动输入');
+    }
+  };
+
+  // 一键复制当前邀请码内容
+  const handleCopyInviteCodes = async () => {
+    const raw = configs.register_invite_code || '';
+    const validCodes = parseValidInviteCodes(raw);
+    const textToCopy = validCodes.length > 0 ? validCodes.join(',') : trimInviteToken(raw);
+    if (!textToCopy) {
+      toast.error('当前没有可复制的邀请码');
+      return;
+    }
+    const ok = await copyTextToClipboard(textToCopy);
+    if (ok) {
+      toast.success(
+        validCodes.length > 1
+          ? `已复制全部 ${validCodes.length} 个邀请码`
+          : `已复制注册邀请码：${textToCopy}`
+      );
+    } else {
+      toast.error('复制失败，请点击显示后手动选中复制');
+    }
+  };
+
+  // 一键清空邀请码以关闭邀请码限制
+  const handleClearInviteCodes = () => {
+    if (!configs.register_invite_code) return;
+    handleConfigChange('register_invite_code', '');
+    toast.success('已清空邀请码，保存配置后将开放免邀请码注册');
+  };
+
+  // 渲染新用户默认配额实时预览摘要条
+  const renderRegisterQuotaPreview = () => {
+    const isOpen = configs.register_enabled === 'true';
+    const inviteRaw = configs.register_invite_code || '';
+    const inviteValidation = validateConfigValue('register_invite_code', inviteRaw);
+    const validInviteCodes = parseValidInviteCodes(inviteRaw);
+    const flowPreview = resolveBoundedQuotaPreview(configs.register_default_flow, 10, 0, 1000000);
+    const numPreview = resolveBoundedQuotaPreview(configs.register_default_num, 5, 0, 10000);
+    const expPreview = resolveBoundedQuotaPreview(configs.register_default_exp_days, 30, 1, 36500);
+    const resetPreview = resolveBoundedQuotaPreview(configs.register_default_flow_reset_time, 1, 0, 31);
+
+    const registerKeys = [
+      'register_enabled',
+      'register_invite_code',
+      'register_default_flow',
+      'register_default_num',
+      'register_default_exp_days',
+      'register_default_flow_reset_time',
+    ];
+    const hasRegisterUnsaved = hasChanges && registerKeys.some((k) => configs[k] !== originalConfigs[k]);
+
+    const inviteSummary = inviteValidation.error
+      ? '格式待修正'
+      : validInviteCodes.length > 0
+      ? `必填 (${validInviteCodes.length} 个)`
+      : '无需邀请码';
+
+    const resetSummary =
+      resetPreview.value === 0 ? '不自动重置' : `每月 ${resetPreview.value} 日`;
+
+    const summaryItems = [
+      {
+        label: '开放状态',
+        value: isOpen ? '已开放注册' : '未开放',
+        sub: isOpen ? '登录页显示入口' : '自助入口已隐藏',
+        warn: false,
+      },
+      {
+        label: '邀请码要求',
+        value: inviteSummary,
+        sub: inviteValidation.error
+          ? '存在校验错误'
+          : validInviteCodes.length > 0
+          ? '受邀校验开启'
+          : '访客可直接注册',
+        warn: Boolean(inviteValidation.error),
+      },
+      {
+        label: '默认流量',
+        value: `${flowPreview.value} GB`,
+        sub: flowPreview.isInvalid
+          ? '输入越界→回退默认'
+          : flowPreview.value === 0
+          ? '0 GB 初始额度'
+          : flowPreview.isDefault
+          ? '系统默认值'
+          : '自定义配额',
+        warn: flowPreview.isInvalid,
+      },
+      {
+        label: '转发数上限',
+        value: `${numPreview.value} 条`,
+        sub: numPreview.isInvalid
+          ? '输入越界→回退默认'
+          : numPreview.isDefault
+          ? '系统默认值'
+          : '自定义上限',
+        warn: numPreview.isInvalid,
+      },
+      {
+        label: '有效期天数',
+        value: `${expPreview.value} 天`,
+        sub: expPreview.isInvalid
+          ? '输入越界→回退默认'
+          : expPreview.isDefault
+          ? '系统默认值'
+          : '自注册起算',
+        warn: expPreview.isInvalid,
+      },
+      {
+        label: '流量重置日',
+        value: resetSummary,
+        sub: resetPreview.isInvalid
+          ? '输入越界→回退默认'
+          : resetPreview.value === 0
+          ? '一次性配额'
+          : resetPreview.isDefault
+          ? '系统默认值'
+          : '按月清零已用',
+        warn: resetPreview.isInvalid,
+      },
+    ];
+
+    return (
+      <div className="tms-subpanel mt-4 rounded-md border border-default-200 bg-default-50/80 p-3.5 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold tracking-wide text-foreground">
+              新用户默认配额实时预览
+            </span>
+            <Chip
+              size="sm"
+              variant="flat"
+              color={isOpen ? 'primary' : 'default'}
+              className="h-5 text-[11px]"
+            >
+              {isOpen
+                ? validInviteCodes.length > 0
+                  ? '受邀注册生效中'
+                  : '公开注册生效中'
+                : '注册入口关闭'}
+            </Chip>
+          </div>
+          {hasRegisterUnsaved && (
+            <span className="text-[11px] font-mono text-warning-600 dark:text-warning-400">
+              * 当前预览含未保存修改，点击右上角「保存配置」后正式生效
+            </span>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+          {summaryItems.map((entry) => (
+            <div
+              key={entry.label}
+              className="tms-metric-tile rounded border border-default-200 bg-content1 px-2.5 py-2 flex flex-col justify-between gap-0.5"
+            >
+              <span className="text-[11px] text-default-500 truncate">{entry.label}</span>
+              <span
+                className={`text-xs font-semibold font-mono tabular-nums truncate ${
+                  entry.warn ? 'text-danger' : 'text-foreground'
+                }`}
+              >
+                {entry.value}
+              </span>
+              <span
+                className={`text-[10px] truncate ${
+                  entry.warn ? 'text-danger-500' : 'text-default-400'
+                }`}
+              >
+                {entry.sub}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
 
   // 检查配置项是否应该显示（依赖检查）
   const shouldShowItem = (item: ConfigItem): boolean => {
@@ -619,6 +897,48 @@ export default function ConfigPage() {
             }}
           />
         );
+
+        if (item.key === 'register_invite_code') {
+          const hasAnyText = currentValue.length > 0;
+          const hasCopyableInvite = trimInviteToken(currentValue).length > 0;
+          return (
+            <div className="flex flex-col sm:flex-row sm:items-start gap-2">
+              <div className="flex-1 min-w-0">{inputElement}</div>
+              <div className="flex flex-wrap items-center gap-1.5 shrink-0">
+                <Button
+                  size="md"
+                  variant="flat"
+                  color="primary"
+                  onPress={handleGenerateInviteCode}
+                  className="shrink-0 font-mono text-xs sm:text-sm"
+                >
+                  生成邀请码
+                </Button>
+                <Button
+                  size="md"
+                  variant="flat"
+                  color="default"
+                  isDisabled={!hasCopyableInvite}
+                  onPress={handleCopyInviteCodes}
+                  className="shrink-0 text-xs sm:text-sm"
+                >
+                  复制邀请码
+                </Button>
+                {hasAnyText && (
+                  <Button
+                    size="md"
+                    variant="flat"
+                    color="danger"
+                    onPress={handleClearInviteCodes}
+                    className="shrink-0 text-xs sm:text-sm"
+                  >
+                    清空
+                  </Button>
+                )}
+              </div>
+            </div>
+          );
+        }
 
         if (!item.copyable) {
           return inputElement;
@@ -826,6 +1146,11 @@ export default function ConfigPage() {
                   
                   {/* 渲染配置项 */}
                   {renderConfigItem(item)}
+
+                  {/* 注册配置区块底部的实时配额摘要条 */}
+                  {((item.key === 'register_enabled' && configs.register_enabled !== 'true') ||
+                    item.key === 'register_default_flow_reset_time') &&
+                    renderRegisterQuotaPreview()}
                   
                   {/* 分隔线 */}
                   {!isLastItem && (
