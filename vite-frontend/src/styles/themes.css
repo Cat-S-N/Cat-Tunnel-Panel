@@ -46,8 +46,8 @@ html[data-skin="pixel"] {
   --heroui-default-100: 0 0% 94%;
   --heroui-default-200: 0 0% 88%;
   --heroui-default-300: 0 0% 80%;
-  --heroui-default-400: 0 0% 45%;
-  --heroui-default-500: 0 0% 35%;
+  --heroui-default-400: 0 0% 38%;
+  --heroui-default-500: 0 0% 32%;
   --heroui-default-600: 0 0% 30%;
   --heroui-default-700: 0 0% 22%;
   --heroui-default-800: 0 0% 14%;
@@ -518,8 +518,24 @@ html[data-skin="pixel"] .tms-progress-bar {
   border-radius: 0 !important;
 }
 
-html[data-skin="pixel"] .tms-progress-bar:not(.tms-progress-unlimited-bar) {
+html[data-skin="pixel"] .tms-progress-bar:not(.tms-progress-unlimited-bar):not(.tms-progress-warning):not(.tms-progress-danger) {
   background-color: var(--pixel-invert-bg) !important;
+}
+
+html[data-skin="pixel"] .tms-progress-bar.tms-progress-warning {
+  background-color: #d97706 !important;
+}
+
+html[data-skin="pixel"].dark .tms-progress-bar.tms-progress-warning {
+  background-color: #fbbf24 !important;
+}
+
+html[data-skin="pixel"] .tms-progress-bar.tms-progress-danger {
+  background-color: #dc2626 !important;
+}
+
+html[data-skin="pixel"].dark .tms-progress-bar.tms-progress-danger {
+  background-color: #f87171 !important;
 }
 
 html[data-skin="pixel"] .tms-progress-unlimited-bar {
@@ -805,7 +821,8 @@ html[data-skin="pixel"] .backdrop-blur-3xl {
 html[data-skin="pixel"] .rounded-xl:not(.animate-spin),
 html[data-skin="pixel"] .rounded-2xl:not(.animate-spin),
 html[data-skin="pixel"] .rounded-3xl:not(.animate-spin),
-html[data-skin="pixel"] .rounded-lg:not(.animate-spin) {
+html[data-skin="pixel"] .rounded-lg:not(.animate-spin),
+html[data-skin="pixel"] .rounded-md:not(.animate-spin) {
   border-radius: 2px !important;
 }
 
@@ -986,6 +1003,62 @@ html[data-skin="pixel"].dark table .text-gray-600 {
 html[data-skin="pixel"] .bg-content1 [data-slot="base"] .bg-content1 {
   border: 1.5px solid var(--pixel-border-muted) !important;
   box-shadow: none !important;
+}
+
+/* 7. 使用说明页决策树、结论条与链路图节点收口为像素黑白灰 */
+html[data-skin="pixel"] .tms-feature-chip {
+  background-color: var(--pixel-surface-alt) !important;
+  color: var(--pixel-text) !important;
+  border: 1px solid var(--pixel-border-muted) !important;
+  border-radius: 2px !important;
+}
+
+html[data-skin="pixel"] .tms-guide-branch {
+  background-color: var(--pixel-surface-alt) !important;
+  border: 1.5px solid var(--pixel-border-muted) !important;
+  border-radius: 2px !important;
+}
+
+html[data-skin="pixel"] .tms-guide-branch-accent {
+  border-left: 4px solid var(--pixel-border) !important;
+}
+
+html[data-skin="pixel"] .tms-guide-callout {
+  background-color: var(--pixel-surface) !important;
+  border: 1.5px solid var(--pixel-border) !important;
+  border-left-width: 4px !important;
+  border-radius: 2px !important;
+}
+
+html[data-skin="pixel"] .tms-guide-verdict {
+  background-color: var(--pixel-surface-alt) !important;
+  color: var(--pixel-text) !important;
+  border: 2px solid var(--pixel-border) !important;
+  border-left-width: 4px !important;
+  border-radius: 2px !important;
+  box-shadow: 3px 3px 0 0 var(--pixel-shadow) !important;
+}
+
+html[data-skin="pixel"] .tms-guide-hop {
+  background-color: var(--pixel-surface) !important;
+  color: var(--pixel-text) !important;
+  border: 1.5px solid var(--pixel-border) !important;
+  border-radius: 2px !important;
+  box-shadow: 2px 2px 0 0 var(--pixel-shadow) !important;
+}
+
+html[data-skin="pixel"] .tms-guide-arrow {
+  color: var(--pixel-text-muted) !important;
+}
+
+html[data-skin="pixel"] .tms-guide-done-hint {
+  color: var(--pixel-text) !important;
+  font-family: var(--pixel-mono-font);
+}
+
+html[data-skin="pixel"] .tms-guide-dot {
+  border-radius: 0 !important;
+  background-color: var(--pixel-invert-bg) !important;
 }
 
 /* ==========================================================================

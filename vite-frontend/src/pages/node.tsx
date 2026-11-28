@@ -129,6 +129,9 @@ export default function NodePage() {
   const [monitorNode, setMonitorNode] = useState<any | null>(null);
   const [inboundNodeIds, setInboundNodeIds] = useState<Set<number> | null>(null);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [dialogVisible, setDialogVisible] = useState(false);
   const [dialogTitle, setDialogTitle] = useState('');
   const [isEdit, setIsEdit] = useState(false);
@@ -138,7 +141,11 @@ export default function NodePage() {
   const [nodeToDelete, setNodeToDelete] = useState<Node | null>(null);
   // 开启 / 关闭 IPv6 的确认框
   const [ipv6Confirm, setIpv6Confirm] = useState<{ node: Node; enable: boolean } | null>(null);
+  const [ipv6Submitting, setIpv6Submitting] = useState(false);
   const [ipv6Errors, setIpv6Errors] = useState<{ title: string; items: string[] } | null>(null);
+  const [copiedNodeId, setCopiedNodeId] = useState<number | null>(null);
+  const [manualCopied, setManualCopied] = useState(false);
+  const copyTimerRef = useRef<number | null>(null);
   const [protocolDisabled, setProtocolDisabled] = useState(false);
   const [protocolDisabledReason, setProtocolDisabledReason] = useState('');
   const [form, setForm] = useState<NodeForm>({
@@ -168,17 +175,24 @@ export default function NodePage() {
   const maxReconnectAttempts = 5;
 
   useEffect(() => {
-    loadNodes();
+    loadNodes(true);
     initWebSocket();
     
     return () => {
       closeWebSocket();
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
     };
   }, []);
 
   // 加载转发机列表
-  const loadNodes = async () => {
-    setLoading(true);
+  const loadNodes = async (showFullSpinner = false) => {
+    if (showFullSpinner) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
     getInboundList()
       .then((ib: any) => {
         if (ib.code === 0) {
@@ -189,19 +203,26 @@ export default function NodePage() {
     try {
       const res = await getNodeList();
       if (res.code === 0) {
-        setNodeList(res.data.map((node: any) => ({
+        setNodeList((res.data || []).map((node: any) => ({
           ...node,
           connectionStatus: node.status === 1 ? 'online' : 'offline',
           systemInfo: null,
           copyLoading: false
         })));
+        setLoadError(null);
+        setHasLoaded(true);
       } else {
-        toast.error(res.msg || '加载转发机列表失败');
+        const msg = res.msg || '加载转发机列表失败';
+        setLoadError(msg);
+        toast.error(msg);
       }
     } catch (error) {
-      toast.error('网络错误，请重试');
+      const msg = '网络错误，加载转发机列表失败';
+      setLoadError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -551,7 +572,7 @@ export default function NodePage() {
   };
 
   const confirmDelete = async () => {
-    if (!nodeToDelete) return;
+    if (!nodeToDelete || deleteLoading) return;
     
     setDeleteLoading(true);
     try {
@@ -576,6 +597,7 @@ export default function NodePage() {
 
   // 复制安装命令
   const handleCopyInstallCommand = async (node: Node) => {
+    if (node.copyLoading) return;
     setNodeList(prev => prev.map(n => 
       n.id === node.id ? { ...n, copyLoading: true } : n
     ));
@@ -590,11 +612,20 @@ export default function NodePage() {
       }
       if (res.code === 0 && res.data) {
         if (await copyText(res.data)) {
+          setCopiedNodeId(node.id);
+          if (copyTimerRef.current !== null) {
+            window.clearTimeout(copyTimerRef.current);
+          }
+          copyTimerRef.current = window.setTimeout(() => {
+            setCopiedNodeId(null);
+            copyTimerRef.current = null;
+          }, 2000);
           toast.success('安装命令已复制到剪贴板');
         } else {
           // 复制失败，显示安装命令模态框让用户手动选择
           setInstallCommand(res.data);
           setCurrentNodeName(node.name);
+          setManualCopied(false);
           setInstallCommandModal(true);
         }
       } else {
@@ -612,6 +643,7 @@ export default function NodePage() {
   // 手动复制安装命令
   const handleManualCopy = async () => {
     if (await copyText(installCommand)) {
+      setManualCopied(true);
       toast.success('安装命令已复制到剪贴板');
       setInstallCommandModal(false);
     } else {
@@ -621,6 +653,7 @@ export default function NodePage() {
 
   // 提交表单
   const handleSubmit = async () => {
+    if (submitLoading) return;
     if (!validateForm()) return;
     
     setSubmitLoading(true);
@@ -727,8 +760,10 @@ export default function NodePage() {
   };
 
   const confirmIpv6Switch = async () => {
-    if (!ipv6Confirm) return;
+    if (!ipv6Confirm || ipv6Submitting) return;
     const { node, enable } = ipv6Confirm;
+    if (node.ipv6Loading) return;
+    setIpv6Submitting(true);
     setIpv6Confirm(null);
     setNodeList(prev => prev.map(n => n.id === node.id ? { ...n, ipv6Loading: true } : n));
     try {
@@ -747,7 +782,7 @@ export default function NodePage() {
         if (/timeout/i.test(msg) || msg.includes('网络请求失败')) {
           // 请求超时 / 网络错误:节点上可能已经切完,不能当失败
           toast.error('结果未知:可能已经切换完成,请刷新页面确认当前状态');
-          loadNodes();
+          loadNodes(false);
           return;
         }
         let items = collectIpv6Errors(res);
@@ -765,6 +800,7 @@ export default function NodePage() {
     } catch (error) {
       toast.error('网络错误,请刷新看一下当前状态');
     } finally {
+      setIpv6Submitting(false);
       setNodeList(prev => prev.map(n => n.id === node.id ? { ...n, ipv6Loading: false } : n));
     }
   };
@@ -811,7 +847,7 @@ export default function NodePage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-1">
               {(
                 [
                   { key: 'all', label: '全部' },
@@ -840,13 +876,36 @@ export default function NodePage() {
             </div>
             <Input
               size="sm"
-              className="w-56"
+              className="w-full sm:w-56"
               placeholder="搜索名称 / IP / 域名"
               isClearable
               value={searchKeyword}
               onValueChange={setSearchKeyword}
               onClear={() => setSearchKeyword('')}
             />
+            {(statusFilter !== 'all' || Boolean(searchKeyword.trim())) && (
+              <Button
+                size="sm"
+                variant="light"
+                onPress={() => {
+                  setStatusFilter('all');
+                  setSearchKeyword('');
+                }}
+              >
+                重置 ({filteredNodes.length}/{nodeList.length})
+              </Button>
+            )}
+            <Button
+              size="sm"
+              variant="flat"
+              isLoading={refreshing}
+              onPress={() => {
+                loadNodes(false);
+                initWebSocket();
+              }}
+            >
+              刷新
+            </Button>
             <Button
               size="sm"
               variant="flat"
@@ -858,16 +917,58 @@ export default function NodePage() {
           </div>
         </div>
 
+        {loadError && hasLoaded && (
+          <div className="tms-inline-alert-danger mb-4 rounded-lg border border-danger/40 bg-danger/10 px-3.5 py-2.5 flex items-center justify-between gap-3 flex-wrap">
+            <div className="text-xs sm:text-sm text-danger font-medium min-w-0 break-words">
+              ⚠️ 刷新失败：{loadError}（当前展示上次已加载的数据）
+            </div>
+            <Button
+              size="sm"
+              color="danger"
+              variant="flat"
+              isLoading={refreshing}
+              onPress={() => {
+                loadNodes(false);
+                initWebSocket();
+              }}
+            >
+              重试
+            </Button>
+          </div>
+        )}
+
         {/* 转发机列表 */}
-        {loading ? (
+        {loading && !hasLoaded ? (
           <div className="flex items-center justify-center h-64">
             <div className="flex items-center gap-3">
               <Spinner size="sm" />
-              <span className="text-default-600">正在加载...</span>
+              <span className="text-default-600">正在加载转发机列表...</span>
             </div>
           </div>
+        ) : loadError && !hasLoaded ? (
+          <Card className="tms-alert-card-danger border border-danger/40 bg-danger/5">
+            <CardBody className="py-14 text-center space-y-4">
+              <div className="space-y-1.5">
+                <h3 className="text-base font-semibold text-danger">加载转发机列表失败</h3>
+                <p className="text-sm text-default-500 max-w-md mx-auto break-words">{loadError}</p>
+              </div>
+              <div>
+                <Button
+                  size="sm"
+                  color="primary"
+                  variant="flat"
+                  onPress={() => {
+                    loadNodes(true);
+                    initWebSocket();
+                  }}
+                >
+                  重试加载
+                </Button>
+              </div>
+            </CardBody>
+          </Card>
         ) : nodeList.length === 0 ? (
-          <Card className="shadow-sm border border-gray-200 dark:border-gray-700">
+          <Card className="shadow-sm border border-divider">
             <CardBody className="text-center py-16">
               <div className="flex flex-col items-center gap-4">
                 <div className="w-16 h-16 bg-default-100 rounded-full flex items-center justify-center">
@@ -877,13 +978,16 @@ export default function NodePage() {
                 </div>
                 <div>
                   <h3 className="text-lg font-semibold text-foreground">暂无转发机配置</h3>
-                  <p className="text-default-500 text-sm mt-1">还没有创建任何转发机配置，点击上方按钮开始创建</p>
+                  <p className="text-default-500 text-sm mt-1">还没有创建任何转发机配置，添加后复制安装命令到服务器执行即可上线</p>
                 </div>
+                <Button size="sm" color="primary" variant="flat" onPress={handleAdd}>
+                  新增转发机
+                </Button>
               </div>
             </CardBody>
           </Card>
         ) : filteredNodes.length === 0 ? (
-          <Card className="shadow-sm border border-gray-200 dark:border-gray-700">
+          <Card className="shadow-sm border border-divider">
             <CardBody className="text-center py-14">
               <div className="flex flex-col items-center gap-3">
                 <h3 className="text-base font-semibold text-foreground">无匹配节点</h3>
@@ -1095,15 +1199,15 @@ export default function NodePage() {
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
-                      <span className={node.ipv6Dual === 1 ? 'text-success-600' : 'text-default-500'}>
+                      <span className={`min-w-0 break-words ${node.ipv6Dual === 1 ? 'text-success-600' : 'text-default-500'}`}>
                         {node.ipv6Dual === 1 ? '已开启 IPv6(IPv4 和 IPv6 都收)' : '未开启'}
                       </span>
                       <Button
                         size="sm"
                         variant="flat"
                         color={node.ipv6Dual === 1 ? 'warning' : 'primary'}
-                        className="min-h-7 h-7"
-                        isDisabled={node.canSwitchListen === false}
+                        className="min-h-7 h-7 shrink-0"
+                        isDisabled={node.canSwitchListen === false || node.ipv6Loading}
                         isLoading={node.ipv6Loading}
                         onPress={() => setIpv6Confirm({ node, enable: node.ipv6Dual !== 1 })}
                       >
@@ -1136,23 +1240,23 @@ export default function NodePage() {
 
                   {/* 操作按钮 */}
                   <div className="space-y-1.5">
-                    <div className="flex gap-1.5">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                       <Button
                         size="sm"
                         variant="flat"
                         color="success"
                         onPress={() => handleCopyInstallCommand(node)}
                         isLoading={node.copyLoading}
-                        className="flex-1 min-h-8"
+                        className="min-w-0 px-2 min-h-8"
                       >
-                        安装命令
+                        {copiedNodeId === node.id ? '✓ 已复制' : '安装命令'}
                       </Button>
                       <Button
                         size="sm"
                         variant="flat"
                         color="primary"
                         onPress={() => handleEdit(node)}
-                        className="flex-1 min-h-8"
+                        className="min-w-0 px-2 min-h-8"
                       >
                         编辑
                       </Button>
@@ -1161,7 +1265,7 @@ export default function NodePage() {
                         variant="flat"
                         color="secondary"
                         onPress={() => setMonitorNode(node)}
-                        className="flex-1 min-h-8"
+                        className="min-w-0 px-2 min-h-8"
                       >
                         监控
                       </Button>
@@ -1170,7 +1274,7 @@ export default function NodePage() {
                         variant="flat"
                         color="danger"
                         onPress={() => handleDelete(node)}
-                        className="flex-1 min-h-8"
+                        className="min-w-0 px-2 min-h-8"
                       >
                         删除
                       </Button>
@@ -1261,7 +1365,7 @@ export default function NodePage() {
                             </div>
                           )}
                         </div>
-                        <div className="flex gap-2 mt-2">
+                        <div className="flex flex-wrap gap-2 mt-2">
                           {[[0, '只出 IPv4'], [1, 'IPv4 + IPv6'], [2, '只出 IPv6']].map(([v, label]) => (
                             <Button
                               key={v as number}
@@ -1477,7 +1581,11 @@ export default function NodePage() {
             </ModalBody>
             <ModalFooter>
               <Button variant="light" onPress={() => setIpv6Confirm(null)}>取消</Button>
-              <Button color={ipv6Confirm?.enable ? 'primary' : 'warning'} onPress={confirmIpv6Switch}>
+              <Button
+                color={ipv6Confirm?.enable ? 'primary' : 'warning'}
+                isLoading={ipv6Submitting}
+                onPress={confirmIpv6Switch}
+              >
                 {ipv6Confirm?.enable ? '开启' : '关闭'}
               </Button>
             </ModalFooter>
@@ -1526,15 +1634,16 @@ export default function NodePage() {
                     classNames={{
                       input: "font-mono text-sm"
                     }}
+                    onClick={(e: any) => e.target?.select?.()}
                   />
                   <Button
                     size="sm"
-                    color="primary"
+                    color={manualCopied ? "success" : "primary"}
                     variant="flat"
                     className="absolute top-2 right-2"
                     onPress={handleManualCopy}
                   >
-                    复制
+                    {manualCopied ? "✓ 已复制" : "复制"}
                   </Button>
                 </div>
                 <div className="text-xs text-default-500">

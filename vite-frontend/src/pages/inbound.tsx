@@ -1,10 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardBody } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Input } from "@heroui/input";
 import { Select, SelectItem } from "@heroui/select";
 import { Modal, ModalContent, ModalHeader, ModalBody, ModalFooter } from "@heroui/modal";
 import { Chip } from "@heroui/chip";
+import { Spinner } from "@heroui/spinner";
 import { Autocomplete, AutocompleteItem } from "@heroui/autocomplete";
 import { DatePicker } from "@heroui/date-picker";
 import { parseDate } from "@internationalized/date";
@@ -38,6 +40,11 @@ import { getSubBase } from "@/utils/sub-base";
  * 车友加这一条订阅,机器上全部协议自动到手,以后加新协议自动更新。
  */
 export default function InboundPage() {
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [inbounds, setInbounds] = useState<any[]>([]);
   const [nodes, setNodes] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
@@ -70,60 +77,108 @@ export default function InboundPage() {
   // 「我自己用」:一键开给当前管理员自己,完事直接把订阅链接弹出来
   const [selfLoading, setSelfLoading] = useState<number | null>(null);
   const [pushing, setPushing] = useState<number | null>(null);
+  const [clearingNodeId, setClearingNodeId] = useState<number | null>(null);
+  const [deletingInboundId, setDeletingInboundId] = useState<number | null>(null);
   const [selfSubUrl, setSelfSubUrl] = useState<string>("");
+  const [selfClashUrl, setSelfClashUrl] = useState<string>("");
+  const [copiedSelfKey, setCopiedSelfKey] = useState<string | null>(null);
+  const copyTimerRef = useRef<number | null>(null);
   const [selfSocksNodes, setSelfSocksNodes] = useState<SocksNodeItem[]>([]);
   const [selfOpen, setSelfOpen] = useState(false);
   // 订阅链接的域名部分永远是【面板地址】,几台机器点出来长得几乎一样,
   // 只有末尾 token 不同 —— 不写清楚是哪台机器,很容易以为"点第二台弹的还是第一台"
   const [selfNodeName, setSelfNodeName] = useState<string>("");
 
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
+    };
+  }, []);
+
+  const markSelfCopied = (key: string) => {
+    setCopiedSelfKey(key);
+    if (copyTimerRef.current !== null) {
+      window.clearTimeout(copyTimerRef.current);
+    }
+    copyTimerRef.current = window.setTimeout(() => {
+      setCopiedSelfKey(null);
+      copyTimerRef.current = null;
+    }, 2000);
+  };
+
   const handleAssignSelf = async (nodeId: number, nodeName?: string) => {
+    if (selfLoading !== null) return;
     setSelfLoading(nodeId);
     setSelfNodeName(nodeName || "");
     setSelfSocksNodes([]);
+    setCopiedSelfKey(null);
     try {
       const res = await assignSelf({ nodeId });
       if (res.code === 0 && res.data?.subToken) {
         // 设了「订阅地址(给车友的)」就用它开头,没设 = 网页地址(和以前一样)
         const [sb, myRes] = await Promise.all([getSubBase(), getMyLines().catch(() => null)]);
         setSelfSubUrl(`${sb}/api/v1/open_api/sub?token=${res.data.subToken}`);
+        setSelfClashUrl(`${sb}/api/v1/open_api/clash?token=${res.data.subToken}`);
         const allSocks: SocksNodeItem[] = myRes?.code === 0 && Array.isArray(myRes.data?.socksNodes)
           ? myRes.data.socksNodes
           : [];
         setSelfSocksNodes(allSocks.filter((s) => s.nodeId === nodeId && !s.landingId));
         setSelfOpen(true);
-        loadAll();
+        loadAll(false);
       } else {
         toast.error(res.msg || "开通失败");
       }
     } catch (e) {
       toast.error("开通失败");
+    } finally {
+      setSelfLoading(null);
     }
-    setSelfLoading(null);
   };
 
-  const loadAll = async () => {
+  const loadAll = async (showFullSpinner = false) => {
+    if (showFullSpinner) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
     try {
       const [ib, nd, us, sp] = await Promise.all([
         getInboundList(),
         getNodeList(),
-        getAllUsers(),
-        getSpeedLimitList(),
+        getAllUsers().catch(() => ({ code: -1, data: [] } as any)),
+        getSpeedLimitList().catch(() => ({ code: -1, data: [] } as any)),
       ]);
-      if (ib.code === 0) setInbounds(ib.data || []);
-      if (nd.code === 0) setNodes(nd.data || []);
+      if (ib.code !== 0 || nd.code !== 0) {
+        const errMsg = ib.code !== 0
+          ? (ib.msg || "加载协议列表失败")
+          : (nd.msg || "加载机器列表失败");
+        setLoadError(errMsg);
+        toast.error(errMsg);
+      } else {
+        setInbounds(ib.data || []);
+        setNodes(nd.data || []);
+        setLoadError(null);
+        setHasLoaded(true);
+      }
       if (us.code === 0) {
         const d: any = us.data;
         setUsers(Array.isArray(d) ? d : (d && d.records ? d.records : []));
       }
       if (sp.code === 0) setSpeedRules(sp.data || []);
     } catch (e) {
-      toast.error("加载失败");
+      const errMsg = "网络异常，加载协议管理数据失败";
+      setLoadError(errMsg);
+      toast.error(errMsg);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
   };
 
   useEffect(() => {
-    loadAll();
+    loadAll(true);
   }, []);
 
   const protoLabel = (p: string) =>
@@ -176,6 +231,7 @@ export default function InboundPage() {
   };
 
   const handleOneClick = async () => {
+    if (oneClickLoading) return;
     if (!oneClickNodeId) return toast.error("请选择节点");
     setOneClickLoading(true);
     try {
@@ -188,11 +244,12 @@ export default function InboundPage() {
       }
       // 真失败也刷:失败常常是建到一半撞的,列表得回到面板真实的样子,
       // 否则用户是在对着幻影操作。
-      loadAll();
+      loadAll(false);
     } catch (e) {
       toast.error("一键添加失败");
+    } finally {
+      setOneClickLoading(false);
     }
-    setOneClickLoading(false);
   };
 
   const openNodeAssign = (n: any, nodeInbounds: any[]) => {
@@ -223,6 +280,7 @@ export default function InboundPage() {
   };
 
   const handleNodeAssign = async () => {
+    if (assignLoading) return;
     if (!assignForm.userId) return toast.error("请选择车友");
     if (!assignForm.inboundIds || assignForm.inboundIds.length === 0) {
       return toast.error("请至少选择一个协议");
@@ -251,50 +309,73 @@ export default function InboundPage() {
           );
         }
         setAssignOpen(false);
-        loadAll();
+        loadAll(false);
       } else {
         toast.error(res.msg || "分配失败");
       }
     } catch (e) {
       toast.error("分配失败");
+    } finally {
+      setAssignLoading(false);
     }
-    setAssignLoading(false);
   };
 
   // 机器上的 sing-box 掉了(转发诊断报「所有TCP连接尝试都失败」)时用这个。
   // 下发的是库里的全量,点几次都一样,不会把已有协议弄乱。
   const handlePushConfig = async (nodeId: number, nodeName: string) => {
+    if (pushing !== null) return;
     setPushing(nodeId);
-    const res = await pushNodeConfig(nodeId);
-    setPushing(null);
-    if (res.code === 0) {
-      toast.success(`已把「${nodeName}」的协议配置重新下发一遍`);
-    } else {
-      // 这里的失败几乎都是节点掉线/超时,原样把后端的话给出来最有用
-      toast.error(res.msg || "下发失败");
+    try {
+      const res = await pushNodeConfig(nodeId);
+      if (res.code === 0) {
+        toast.success(`已把「${nodeName}」的协议配置重新下发一遍`);
+      } else {
+        // 这里的失败几乎都是节点掉线/超时,原样把后端的话给出来最有用
+        toast.error(res.msg || "下发失败");
+      }
+    } catch {
+      toast.error("下发请求失败，请重试");
+    } finally {
+      setPushing(null);
     }
   };
 
   const handleDeleteInbound = async (ib: any, nodeName: string) => {
+    if (deletingInboundId !== null || clearingNodeId !== null) return;
     const label = `${protoLabel(ib.protocol)}${ib.remark ? ` (${ib.remark})` : ""}`;
     if (!window.confirm(`确定删除「${nodeName}」上的单个协议【${label}】？\n（该协议已分配的用户转发会一并清理，其它协议不受影响）`)) return;
-    const res = await deleteInbound(ib.id);
-    if (res.code === 0) {
-      toast.success(`已删除协议 ${label}`);
-      loadAll();
-    } else {
-      toast.error(res.msg || "删除失败");
+    setDeletingInboundId(ib.id);
+    try {
+      const res = await deleteInbound(ib.id);
+      if (res.code === 0) {
+        toast.success(`已删除协议 ${label}`);
+        loadAll(false);
+      } else {
+        toast.error(res.msg || "删除失败");
+      }
+    } catch {
+      toast.error("删除失败，请重试");
+    } finally {
+      setDeletingInboundId(null);
     }
   };
 
   const handleClearNode = async (nodeId: number, nodeName: string) => {
+    if (clearingNodeId !== null || deletingInboundId !== null) return;
     if (!window.confirm(`确定清空「${nodeName}」上的直连协议?(连带其转发/用户;中转协议不受影响)`)) return;
-    const res = await deleteInboundsByNode(nodeId, false);
-    if (res.code === 0) {
-      toast.success("已清空该机协议");
-      loadAll();
-    } else {
-      toast.error(res.msg || "清空失败");
+    setClearingNodeId(nodeId);
+    try {
+      const res = await deleteInboundsByNode(nodeId, false);
+      if (res.code === 0) {
+        toast.success("已清空该机协议");
+        loadAll(false);
+      } else {
+        toast.error(res.msg || "清空失败");
+      }
+    } catch {
+      toast.error("清空失败，请重试");
+    } finally {
+      setClearingNodeId(null);
     }
   };
 
@@ -338,8 +419,17 @@ export default function InboundPage() {
             直连协议：{directInbounds.length}
           </Chip>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button
+            size="sm"
+            variant="flat"
+            isLoading={refreshing}
+            onPress={() => loadAll(false)}
+          >
+            刷新
+          </Button>
+          <Button
+            size="sm"
             color="secondary"
             onPress={() => {
               setOneClickNodeId(null);
@@ -349,6 +439,7 @@ export default function InboundPage() {
             ⚡ 一键搭建整机协议
           </Button>
           <Button
+            size="sm"
             color="primary"
             variant="flat"
             onPress={() => {
@@ -360,6 +451,17 @@ export default function InboundPage() {
           </Button>
         </div>
       </div>
+
+      {loadError && hasLoaded && (
+        <div className="tms-inline-alert-danger rounded-lg border border-danger/40 bg-danger/10 px-3.5 py-2.5 flex items-center justify-between gap-3 flex-wrap">
+          <div className="text-xs sm:text-sm text-danger font-medium min-w-0 break-words">
+            ⚠️ 刷新失败：{loadError}（当前展示上次已加载的数据）
+          </div>
+          <Button size="sm" color="danger" variant="flat" isLoading={refreshing} onPress={() => loadAll(false)}>
+            重试
+          </Button>
+        </div>
+      )}
 
       {allMachineNodes.length > 0 && (
         <div className="flex flex-wrap items-center gap-2">
@@ -418,122 +520,237 @@ export default function InboundPage() {
         </div>
       )}
 
-      {/* 一机一卡:每台机器的全套协议折叠成一条记录,卡上直接分配用户 */}
-      <div className="grid gap-3 md:grid-cols-2">
-        {machineNodes.map((n) => {
-          const nodeInbounds = inbounds.filter((ib) => ib.nodeId === n.id && !ib.landingId);
-          const online = n.status === 1;
-          const firstIp = n.ip ? String(n.ip).split(",")[0].trim() : (n.serverIp || "");
-          return (
-            <Card key={n.id}>
-              <CardBody className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-lg font-semibold truncate">🖥️ {n.name}</span>
-                  <Chip size="sm" variant="flat" color={online ? "success" : "default"}>{online ? "在线" : "离线"}</Chip>
-                  <Chip size="sm" variant="flat" color="primary" className="ml-auto">{nodeInbounds.length} 协议</Chip>
-                </div>
-                {firstIp && <div className="text-xs text-default-500 font-mono">{firstIp}</div>}
+      {loading && !hasLoaded ? (
+        <div className="flex items-center justify-center h-64">
+          <div className="flex items-center gap-3">
+            <Spinner size="sm" />
+            <span className="text-default-600">正在加载协议管理数据...</span>
+          </div>
+        </div>
+      ) : loadError && !hasLoaded ? (
+        <Card className="tms-alert-card-danger border border-danger/40 bg-danger/5">
+          <CardBody className="py-12 text-center space-y-4">
+            <div className="space-y-1.5">
+              <h3 className="text-base font-semibold text-danger">加载协议管理数据失败</h3>
+              <p className="text-sm text-default-500 max-w-md mx-auto break-words">{loadError}</p>
+            </div>
+            <div>
+              <Button color="primary" size="sm" variant="flat" onPress={() => loadAll(true)}>
+                重试加载
+              </Button>
+            </div>
+          </CardBody>
+        </Card>
+      ) : allMachineNodes.length === 0 ? (
+        <Card className="border border-divider">
+          <CardBody className="py-14 text-center space-y-4">
+            <div className="space-y-1.5">
+              <h3 className="text-base font-semibold text-foreground">
+                {nodes.length === 0 ? "暂无可用转发机" : "暂无直连协议"}
+              </h3>
+              <p className="text-sm text-default-500 max-w-md mx-auto">
+                {nodes.length === 0
+                  ? "搭建直连协议前，请先在「转发机」页面添加并上线至少一台机器"
+                  : `当前已有 ${nodes.length} 台机器，点击下方按钮即可在指定机器上一键建好全套协议`}
+              </p>
+            </div>
+            <div className="flex items-center justify-center gap-2 flex-wrap">
+              {nodes.length === 0 ? (
+                <Button color="primary" size="sm" variant="flat" onPress={() => navigate("/node")}>
+                  前往添加转发机
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    color="secondary"
+                    size="sm"
+                    onPress={() => {
+                      setOneClickNodeId(null);
+                      setOneClickOpen(true);
+                    }}
+                  >
+                    ⚡ 一键搭建整机协议
+                  </Button>
+                  <Button
+                    color="primary"
+                    size="sm"
+                    variant="flat"
+                    onPress={() => {
+                      setCreateForm({ nodeId: null, protocol: "vless", sni: DEFAULT_SNI, dest: "", remark: "" });
+                      setCreateOpen(true);
+                    }}
+                  >
+                    单独加一个协议
+                  </Button>
+                </>
+              )}
+            </div>
+          </CardBody>
+        </Card>
+      ) : machineNodes.length === 0 ? (
+        <Card className="border border-divider">
+          <CardBody className="py-12 text-center space-y-3">
+            <h3 className="text-base font-semibold text-foreground">无匹配机器</h3>
+            <p className="text-sm text-default-500">
+              当前搜索或筛选条件下没有匹配的协议机器（共 {allMachineNodes.length} 台）
+            </p>
+            <div>
+              <Button
+                size="sm"
+                color="primary"
+                variant="flat"
+                onPress={() => {
+                  setSearchKeyword("");
+                  setStatusFilter("all");
+                  setProtoFilter("all");
+                }}
+              >
+                重置筛选
+              </Button>
+            </div>
+          </CardBody>
+        </Card>
+      ) : (
+        /* 一机一卡:每台机器的全套协议折叠成一条记录,卡上直接分配用户 */
+        <div className="grid gap-3 md:grid-cols-2">
+          {machineNodes.map((n) => {
+            const nodeInbounds = inbounds.filter((ib) => ib.nodeId === n.id && !ib.landingId);
+            const online = n.status === 1;
+            const firstIp = n.ip ? String(n.ip).split(",")[0].trim() : (n.serverIp || "");
+            const isClearingThis = clearingNodeId === n.id;
+            return (
+              <Card key={n.id}>
+                <CardBody className="space-y-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="text-lg font-semibold truncate min-w-0">🖥️ {n.name}</span>
+                    <Chip size="sm" variant="flat" color={online ? "success" : "default"} className="shrink-0">
+                      {online ? "在线" : "离线"}
+                    </Chip>
+                    <Chip size="sm" variant="flat" color="primary" className="ml-auto shrink-0">
+                      {nodeInbounds.length} 协议
+                    </Chip>
+                  </div>
+                  {firstIp && <div className="text-xs text-default-500 font-mono truncate">{firstIp}</div>}
 
-                {/* 节点在线 ≠ 协议可用:gost 和 sing-box 是两个服务,sing-box 挂了
-                    这里照样显示「在线」,但这台机上所有协议全都连不上。必须单独标出来 —— 
-                    不然只会以为是协议参数配错了,往那个方向查很久都查不出来 */}
-                {online && n.singboxRunning === false && nodeInbounds.length > 0 && (
-                  n.singboxInstalling ? (
-                    <div className="tms-inline-panel rounded-lg border border-default-300 bg-default-100 px-3 py-2 space-y-1">
-                      <div className="text-sm font-medium text-default-600">⏳ sing-box 正在安装,请稍候…</div>
-                      <div className="text-xs text-default-500">
-                        首次建协议时会现下 sing-box(约 57MB),一般 1-2 分钟。装好后这里自动恢复正常,不用管。
-                      </div>
-                    </div>
-                  ) : n.singboxInstallErr ? (
-                    <div className="tms-inline-alert-danger rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 space-y-1">
-                      <div className="text-sm font-semibold text-danger">⚠️ sing-box 安装失败,这台机的协议全部不可用</div>
-                      <div className="text-xs text-default-500 break-all">
-                        节点报的原因:<code className="font-mono">{n.singboxInstallErr}</code>
-                      </div>
-                      <div className="text-xs text-default-500">
-                        多半是这台机下载 GitHub 失败。国内机器改用镜像版命令重跑节点安装脚本(见 README)。
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="tms-inline-alert-danger rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 space-y-1">
-                      <div className="text-sm font-semibold text-danger">⚠️ sing-box 未运行,这台机的协议全部不可用</div>
-                      {n.singboxInstalled === false ? (
+                  {/* 节点在线 ≠ 协议可用:gost 和 sing-box 是两个服务,sing-box 挂了
+                      这里照样显示「在线」,但这台机上所有协议全都连不上。必须单独标出来 ——
+                      不然只会以为是协议参数配错了,往那个方向查很久都查不出来 */}
+                  {online && n.singboxRunning === false && nodeInbounds.length > 0 && (
+                    n.singboxInstalling ? (
+                      <div className="tms-inline-panel rounded-lg border border-default-300 bg-default-100 px-3 py-2 space-y-1">
+                        <div className="text-sm font-medium text-default-600">⏳ sing-box 正在安装,请稍候…</div>
                         <div className="text-xs text-default-500">
-                          这台机上<span className="text-danger font-medium">根本没装 sing-box</span> —— 装节点时从 GitHub
-                          下载失败了(国内机常见)。到这台机上重跑一次节点安装脚本即可,装好后面板会自动把协议配置推下去,
-                          不用重新分配。
+                          首次建协议时会现下 sing-box(约 57MB),一般 1-2 分钟。装好后这里自动恢复正常,不用管。
                         </div>
-                      ) : (
+                      </div>
+                    ) : n.singboxInstallErr ? (
+                      <div className="tms-inline-alert-danger rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 space-y-1">
+                        <div className="text-sm font-semibold text-danger">⚠️ sing-box 安装失败,这台机的协议全部不可用</div>
+                        <div className="text-xs text-default-500 break-all">
+                          节点报的原因:<code className="font-mono">{n.singboxInstallErr}</code>
+                        </div>
                         <div className="text-xs text-default-500">
-                          节点本身在线(gost 正常),但跑协议的 sing-box 没起来。到这台机上执行:
-                          <code className="font-mono bg-default-200 px-1 rounded ml-1">systemctl enable --now sing-box</code>
-                          <div className="mt-1">
-                            若报 <code className="font-mono">Unit file sing-box.service does not exist</code>,说明根本没装上
-                            (下载 GitHub 失败),重跑一次节点安装脚本即可。
+                          多半是这台机下载 GitHub 失败。国内机器改用镜像版命令重跑节点安装脚本(见 README)。
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="tms-inline-alert-danger rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 space-y-1">
+                        <div className="text-sm font-semibold text-danger">⚠️ sing-box 未运行,这台机的协议全部不可用</div>
+                        {n.singboxInstalled === false ? (
+                          <div className="text-xs text-default-500">
+                            这台机上<span className="text-danger font-medium">根本没装 sing-box</span> —— 装节点时从 GitHub
+                            下载失败了(国内机常见)。到这台机上重跑一次节点安装脚本即可,装好后面板会自动把协议配置推下去,
+                            不用重新分配。
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  )
-                )}
-                <div className="flex flex-wrap gap-1">
-                  {nodeInbounds.map((ib) => (
-                    <Chip
-                      key={ib.id}
+                        ) : (
+                          <div className="text-xs text-default-500">
+                            节点本身在线(gost 正常),但跑协议的 sing-box 没起来。到这台机上执行:
+                            <code className="font-mono bg-default-200 px-1 rounded ml-1">systemctl enable --now sing-box</code>
+                            <div className="mt-1">
+                              若报 <code className="font-mono">Unit file sing-box.service does not exist</code>,说明根本没装上
+                              (下载 GitHub 失败),重跑一次节点安装脚本即可。
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  )}
+                  <div className="flex flex-wrap gap-1">
+                    {nodeInbounds.map((ib) => (
+                      <Chip
+                        key={ib.id}
+                        size="sm"
+                        variant="flat"
+                        color={ib.protocol === "socks" ? "warning" : "secondary"}
+                        isDisabled={deletingInboundId === ib.id || isClearingThis}
+                        onClose={
+                          deletingInboundId !== null || isClearingThis
+                            ? undefined
+                            : () => handleDeleteInbound(ib, n.name)
+                        }
+                      >
+                        {protoLabel(ib.protocol)}{ib.remark ? ` (${ib.remark})` : ""}
+                      </Chip>
+                    ))}
+                  </div>
+                  <div className="text-xs text-default-400">
+                    整机一条订阅:分配给车友后,一条订阅链接导入客户端即拿到上面全部协议,以后加新协议自动更新。
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      color="primary"
+                      className="min-w-[110px] flex-1"
+                      isDisabled={isClearingThis}
+                      onPress={() => openNodeAssign(n, nodeInbounds)}
+                    >
+                      👤 分配用户
+                    </Button>
+                    <Button
+                      size="sm"
+                      color="secondary"
+                      variant="flat"
+                      isDisabled={isClearingThis}
+                      onPress={() => setNodeUsersModal({ open: true, nodeId: n.id, title: n.name })}
+                    >
+                      👥 已分用户
+                    </Button>
+                    {/* 自己用不必先建车友再分配:一键开给当前管理员,不限速不限量不到期 */}
+                    <Button
+                      size="sm"
+                      color="success"
+                      variant="flat"
+                      isLoading={selfLoading === n.id}
+                      isDisabled={(selfLoading !== null && selfLoading !== n.id) || isClearingThis}
+                      onPress={() => handleAssignSelf(n.id, n.name)}
+                    >
+                      🔑 我自己用
+                    </Button>
+                    <Button
                       size="sm"
                       variant="flat"
-                      color={ib.protocol === "socks" ? "warning" : "secondary"}
-                      onClose={() => handleDeleteInbound(ib, n.name)}
+                      isLoading={pushing === n.id}
+                      isDisabled={(pushing !== null && pushing !== n.id) || isClearingThis}
+                      onPress={() => handlePushConfig(n.id, n.name)}
                     >
-                      {protoLabel(ib.protocol)}{ib.remark ? ` (${ib.remark})` : ""}
-                    </Chip>
-                  ))}
-                </div>
-                <div className="text-xs text-default-400">
-                  整机一条订阅:分配给车友后,一条订阅链接导入客户端即拿到上面全部协议,以后加新协议自动更新。
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button size="sm" color="primary" className="flex-1" onPress={() => openNodeAssign(n, nodeInbounds)}>
-                    👤 分配用户
-                  </Button>
-                  <Button
-                    size="sm"
-                    color="secondary"
-                    variant="flat"
-                    onPress={() => setNodeUsersModal({ open: true, nodeId: n.id, title: n.name })}
-                  >
-                    👥 已分用户
-                  </Button>
-                  {/* 自己用不必先建车友再分配:一键开给当前管理员,不限速不限量不到期 */}
-                  <Button
-                    size="sm"
-                    color="success"
-                    variant="flat"
-                    isLoading={selfLoading === n.id}
-                    onPress={() => handleAssignSelf(n.id, n.name)}
-                  >
-                    🔑 我自己用
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="flat"
-                    isLoading={pushing === n.id}
-                    onPress={() => handlePushConfig(n.id, n.name)}
-                  >
-                    🔄 重推配置
-                  </Button>
-                  <Button size="sm" color="danger" variant="flat" onPress={() => handleClearNode(n.id, n.name)}>
-                    清空该机
-                  </Button>
-                </div>
-              </CardBody>
-            </Card>
-          );
-        })}
-      </div>
-      {machineNodes.length === 0 && (
-        <div className="text-center text-default-400 py-8">还没有协议,点右上角「⚡ 一键搭建整机协议」在某台机器上把全套协议建出来</div>
+                      🔄 重推配置
+                    </Button>
+                    <Button
+                      size="sm"
+                      color="danger"
+                      variant="flat"
+                      isLoading={isClearingThis}
+                      isDisabled={clearingNodeId !== null && !isClearingThis}
+                      onPress={() => handleClearNode(n.id, n.name)}
+                    >
+                      清空该机
+                    </Button>
+                  </div>
+                </CardBody>
+              </Card>
+            );
+          })}
+        </div>
       )}
 
       {/* 「我自己用」结果:直接把订阅链接给出来,不用再去用户管理找 */}
@@ -563,17 +780,36 @@ export default function InboundPage() {
             <SubQr url={selfSubUrl} />
             {selfSocksNodes.length > 0 && <SocksNodesSection nodes={selfSocksNodes} />}
           </ModalBody>
-          <ModalFooter>
+          <ModalFooter className="flex-wrap gap-2">
             <Button variant="light" onPress={() => setSelfOpen(false)}>关闭</Button>
+            {selfClashUrl && (
+              <Button
+                variant="flat"
+                color={copiedSelfKey === "clash" ? "success" : "default"}
+                onPress={async () => {
+                  if (await copyTextToClipboard(selfClashUrl)) {
+                    markSelfCopied("clash");
+                    toast.success("已复制 Clash / Mihomo 订阅链接");
+                  } else {
+                    toast.error("复制失败,请手动复制");
+                  }
+                }}
+              >
+                {copiedSelfKey === "clash" ? "✓ 已复制 Clash 版" : "复制 Clash / Mihomo 版"}
+              </Button>
+            )}
             <Button
-              color="primary"
+              color={copiedSelfKey === "sub" ? "success" : "primary"}
               onPress={async () => {
-                (await copyTextToClipboard(selfSubUrl))
-                  ? toast.success("已复制订阅链接")
-                  : toast.error("复制失败,点框内已全选,按 Ctrl+C");
+                if (await copyTextToClipboard(selfSubUrl)) {
+                  markSelfCopied("sub");
+                  toast.success("已复制订阅链接");
+                } else {
+                  toast.error("复制失败,点框内已全选,按 Ctrl+C");
+                }
               }}
             >
-              复制订阅链接
+              {copiedSelfKey === "sub" ? "✓ 已复制订阅链接" : "复制订阅链接"}
             </Button>
           </ModalFooter>
         </ModalContent>

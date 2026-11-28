@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardBody } from "@heroui/card";
 import { Chip } from "@heroui/chip";
 import { Accordion, AccordionItem } from "@heroui/accordion";
@@ -131,7 +131,7 @@ const TROUBLESHOOT_SNIPPETS: TroubleshootSnippet[] = [
     id: "sub-check",
     title: "检查订阅地址连通性",
     desc: "在终端测试订阅链接是否能正常返回 200 状态码与节点内容",
-    cmd: 'curl -ILsS -o /dev/null -w "HTTP %{http_code} | 耗时 %{time_total}s\\n" "https://你的面板域名/api/v1/sub/你的订阅Token"',
+    cmd: 'curl -sSL -o /dev/null -w "HTTP %{http_code} | 大小 %{size_download}B | 耗时 %{time_total}s\\n" "https://你的面板域名/api/v1/open_api/sub?token=你的订阅Token"',
   },
   {
     id: "gost-ver",
@@ -242,7 +242,9 @@ function Branch({
     default: "border-default-300 bg-default-100/50 dark:border-default-200/60 dark:bg-default-100/30",
   }[color];
   return (
-    <div className={`rounded-xl border ${ring} p-4 space-y-2 h-full`}>
+    <div
+      className={`tms-guide-branch ${color !== "default" ? "tms-guide-branch-accent" : ""} rounded-xl border ${ring} p-4 space-y-2 h-full`}
+    >
       <div className="flex items-center gap-2">
         <span className="text-lg">{tag}</span>
         <span className="font-semibold text-sm">{title}</span>
@@ -257,7 +259,7 @@ function Verdict({ name, color }: { name: string; color: "primary" | "warning" |
   return (
     <div className="flex items-center gap-2 pt-1">
       <span className="text-default-400 text-xs">用</span>
-      <Chip size="sm" color={color} variant="flat" className="font-medium">
+      <Chip size="sm" color={color} variant="flat" className="tms-feature-chip font-medium">
         {name}
       </Chip>
     </div>
@@ -267,6 +269,17 @@ function Verdict({ name, color }: { name: string; color: "primary" | "warning" |
 export default function GuidePage() {
   const [platform, setPlatform] = useState<Platform>("全部");
   const [keyword, setKeyword] = useState("");
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [copyingId, setCopyingId] = useState<string | null>(null);
+  const copyTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
+    };
+  }, []);
 
   const normalizedQuery = keyword.trim().toLowerCase();
 
@@ -277,17 +290,19 @@ export default function GuidePage() {
     );
   }, [normalizedQuery]);
 
+  const allPlatformKeywordClients = useMemo(() => {
+    if (!normalizedQuery) return CLIENTS;
+    return CLIENTS.filter((c) =>
+      `${c.name} ${c.protocols} ${c.desc} ${c.tip} ${c.platforms.join(" ")}`
+        .toLowerCase()
+        .includes(normalizedQuery),
+    );
+  }, [normalizedQuery]);
+
   const filteredClients = useMemo(() => {
-    return CLIENTS.filter((c) => {
-      const matchPlatform = platform === "全部" || c.platforms.includes(platform);
-      const matchKeyword =
-        !normalizedQuery ||
-        `${c.name} ${c.protocols} ${c.desc} ${c.tip} ${c.platforms.join(" ")}`
-          .toLowerCase()
-          .includes(normalizedQuery);
-      return matchPlatform && matchKeyword;
-    });
-  }, [platform, normalizedQuery]);
+    if (platform === "全部") return allPlatformKeywordClients;
+    return allPlatformKeywordClients.filter((c) => c.platforms.includes(platform));
+  }, [platform, allPlatformKeywordClients]);
 
   const filteredSnippets = useMemo(() => {
     if (!normalizedQuery) return TROUBLESHOOT_SNIPPETS;
@@ -309,12 +324,28 @@ export default function GuidePage() {
     filteredSnippets.length > 0 ||
     filteredFaqs.length > 0;
 
-  const handleCopy = async (text: string, label: string) => {
-    const ok = await copyTextToClipboard(text);
-    if (ok) {
-      toast.success(`已复制：${label}`);
-    } else {
-      toast.error("复制失败，请手动选中复制");
+  const hasActiveFilter = platform !== "全部" || Boolean(normalizedQuery);
+
+  const handleCopy = async (id: string, text: string, label: string) => {
+    if (copyingId === id) return;
+    setCopyingId(id);
+    try {
+      const ok = await copyTextToClipboard(text);
+      if (ok) {
+        setCopiedId(id);
+        if (copyTimerRef.current !== null) {
+          window.clearTimeout(copyTimerRef.current);
+        }
+        copyTimerRef.current = window.setTimeout(() => {
+          setCopiedId(null);
+          copyTimerRef.current = null;
+        }, 2000);
+        toast.success(`已复制：${label}`);
+      } else {
+        toast.error("复制失败，请手动选中复制");
+      }
+    } finally {
+      setCopyingId(null);
     }
   };
 
@@ -372,21 +403,45 @@ export default function GuidePage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5 flex-wrap pt-1 border-t border-divider/60">
-            <span className="text-xs text-default-400 mr-1">客户端平台:</span>
-            {PLATFORMS.map((p) => (
-              <Chip
-                key={p}
-                as="button"
-                className="cursor-pointer transition-colors"
-                color={platform === p ? "primary" : "default"}
-                size="sm"
-                variant={platform === p ? "solid" : "flat"}
-                onClick={() => setPlatform(p)}
-              >
-                {p}
-              </Chip>
-            ))}
+          <div className="flex items-center justify-between gap-2 flex-wrap pt-1 border-t border-divider/60">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-xs text-default-400 mr-1">客户端平台:</span>
+              {PLATFORMS.map((p) => (
+                <Chip
+                  key={p}
+                  as="button"
+                  className="cursor-pointer transition-colors"
+                  color={platform === p ? "primary" : "default"}
+                  size="sm"
+                  variant={platform === p ? "solid" : "flat"}
+                  onClick={() => setPlatform(p)}
+                >
+                  {p}
+                </Chip>
+              ))}
+            </div>
+            {hasActiveFilter && (
+              <div className="flex items-center gap-2 flex-wrap">
+                {platform !== "全部" && filteredClients.length > 0 && (
+                  <Button
+                    size="sm"
+                    variant="flat"
+                    className="h-6 min-w-0 px-2 text-xs"
+                    onPress={() => scrollToSection("sec-clients")}
+                  >
+                    查看 {filteredClients.length} 款 {platform} 客户端 ↓
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant="light"
+                  className="h-6 min-w-0 px-2 text-xs"
+                  onPress={resetFilters}
+                >
+                  重置筛选
+                </Button>
+              </div>
+            )}
           </div>
         </CardBody>
       </Card>
@@ -396,9 +451,26 @@ export default function GuidePage() {
         <Card className="border border-divider">
           <CardBody className="py-10 text-center space-y-3">
             <div className="text-sm text-default-500">
-              没有找到与「<span className="font-medium text-foreground">{keyword || platform}</span>」相关的内容
+              {platform !== "全部" && keyword.trim() ? (
+                <>
+                  在「<span className="font-medium text-foreground">{platform}</span>」平台下未找到与「
+                  <span className="font-medium text-foreground">{keyword.trim()}</span>」相关的内容
+                  {allPlatformKeywordClients.length > 0 && (
+                    <span>（其他平台有 {allPlatformKeywordClients.length} 款匹配客户端）</span>
+                  )}
+                </>
+              ) : (
+                <>
+                  没有找到与「<span className="font-medium text-foreground">{keyword || platform}</span>」相关的内容
+                </>
+              )}
             </div>
-            <div>
+            <div className="flex items-center justify-center gap-2 flex-wrap">
+              {platform !== "全部" && allPlatformKeywordClients.length > 0 && (
+                <Button color="primary" size="sm" variant="solid" onPress={() => setPlatform("全部")}>
+                  切换到全部平台 ({allPlatformKeywordClients.length})
+                </Button>
+              )}
               <Button color="primary" size="sm" variant="flat" onPress={resetFilters}>
                 重置筛选与搜索
               </Button>
@@ -417,7 +489,7 @@ export default function GuidePage() {
                 <CardBody className="space-y-3">
                   <div className="flex items-center gap-2">
                     <span className="text-xl">{f.icon}</span>
-                    <Chip size="sm" color={f.color} variant="flat" className="font-medium">
+                    <Chip size="sm" color={f.color} variant="flat" className="tms-feature-chip font-medium">
                       {f.name}
                     </Chip>
                   </div>
@@ -448,17 +520,17 @@ export default function GuidePage() {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <Branch tag="📋" title="订阅 —— 给车友翻墙用" color="primary">
-                    <div className="flex items-start gap-2">
+                    <div className="flex items-start gap-2 flex-wrap">
                       <span className="text-default-400 shrink-0">·</span>
                       <span>出口就用这台机</span>
-                      <Chip size="sm" color="primary" variant="flat">协议管理</Chip>
+                      <Chip size="sm" color="primary" variant="flat" className="tms-feature-chip">协议管理</Chip>
                     </div>
-                    <div className="flex items-start gap-2">
+                    <div className="flex items-start gap-2 flex-wrap">
                       <span className="text-default-400 shrink-0">·</span>
                       <span>出口要换成住宅 IP 或别的节点</span>
-                      <Chip size="sm" color="warning" variant="flat">中转</Chip>
+                      <Chip size="sm" color="warning" variant="flat" className="tms-feature-chip">中转</Chip>
                     </div>
-                    <div className="text-xs text-success pt-1">✓ 到这就完了,第二问不用看</div>
+                    <div className="tms-guide-done-hint text-xs text-success pt-1">✓ 到这就完了,第二问不用看</div>
                   </Branch>
 
                   <Branch tag="🔌" title="一个端口 —— 自己用 / 搬服务" color="default">
@@ -491,23 +563,23 @@ export default function GuidePage() {
                     <p className="font-medium">再看入口机到落地这一段过不过墙:</p>
 
                     <div className="space-y-2 pt-1">
-                      <div className="rounded-lg bg-default-100 dark:bg-default-100/50 p-2.5 space-y-1">
+                      <div className="tms-inline-panel rounded-lg bg-default-100 dark:bg-default-100/50 p-2.5 space-y-1">
                         <div className="text-xs font-medium">不过墙</div>
                         <div className="text-xs text-default-500">两头都在境内,或两头都在境外</div>
                         <div className="flex items-center gap-2">
                           <span className="text-default-400 text-xs">还是用</span>
-                          <Chip size="sm" color="secondary" variant="flat">端口转发</Chip>
+                          <Chip size="sm" color="secondary" variant="flat" className="tms-feature-chip">端口转发</Chip>
                         </div>
                       </div>
 
-                      <div className="rounded-lg border border-warning/40 bg-warning/5 p-2.5 space-y-1">
+                      <div className="tms-guide-callout rounded-lg border border-warning/40 bg-warning/5 p-2.5 space-y-1">
                         <div className="text-xs font-medium">过墙</div>
                         <div className="text-xs text-default-500">
                           境内入口 → 境外裸落地,比如河北直连泰国住宅 socks
                         </div>
                         <div className="flex items-center gap-2">
                           <span className="text-default-400 text-xs">这才轮到</span>
-                          <Chip size="sm" color="default" variant="flat">隧道转发</Chip>
+                          <Chip size="sm" color="default" variant="flat" className="tms-feature-chip">隧道转发</Chip>
                         </div>
                         <div className="text-xs text-default-500">中间加一台境外机,把过墙那段包进加密隧道</div>
                       </div>
@@ -518,7 +590,7 @@ export default function GuidePage() {
             </Card>
 
             {/* 结论 */}
-            <div className="rounded-xl border border-success/30 bg-success/5 px-4 py-3 text-sm">
+            <div className="tms-guide-verdict rounded-xl border border-success/30 bg-success/5 px-4 py-3 text-sm">
               <span className="font-semibold">结论:隧道转发只在最后那一格才需要。</span>
               <span className="text-default-600">
                 {" "}其它情况端口转发都够,还更省事(只有入口机要装 gost)。别看落地是不是裸的就下结论 —— 关键是那段路
@@ -530,32 +602,52 @@ export default function GuidePage() {
       )}
 
       {/* 客户端推荐 */}
-      {filteredClients.length > 0 && (
+      {(filteredClients.length > 0 || (hasAnyMatch && platform !== "全部")) && (
         <div id="sec-clients" className="scroll-mt-4">
           <SectionTitle hint={`当前平台: ${platform}`}>客户端推荐与订阅导入</SectionTitle>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-3">
-            {filteredClients.map((c) => (
-              <Card key={c.name} className="border border-divider h-full">
-                <CardBody className="space-y-2.5">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="font-semibold text-sm">{c.name}</div>
-                    <div className="flex items-center gap-1 flex-wrap justify-end">
-                      {c.platforms.map((p) => (
-                        <Chip key={p} size="sm" variant="flat" color={platform === p ? "primary" : "default"}>
-                          {p}
-                        </Chip>
-                      ))}
+          {filteredClients.length === 0 ? (
+            <Card className="border border-divider mt-3">
+              <CardBody className="py-8 text-center space-y-2.5">
+                <div className="text-sm text-default-500">
+                  当前「<span className="font-medium text-foreground">{platform}</span>」平台下没有匹配的推荐客户端
+                </div>
+                <div className="flex items-center justify-center gap-2 flex-wrap">
+                  <Button size="sm" color="primary" variant="flat" onPress={() => setPlatform("全部")}>
+                    切换到全部平台
+                  </Button>
+                  {normalizedQuery && (
+                    <Button size="sm" variant="light" onPress={resetFilters}>
+                      清空搜索词
+                    </Button>
+                  )}
+                </div>
+              </CardBody>
+            </Card>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-3">
+              {filteredClients.map((c) => (
+                <Card key={c.name} className="border border-divider h-full">
+                  <CardBody className="space-y-2.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="font-semibold text-sm">{c.name}</div>
+                      <div className="flex items-center gap-1 flex-wrap justify-end">
+                        {c.platforms.map((p) => (
+                          <Chip key={p} size="sm" variant="flat" color={platform === p ? "primary" : "default"}>
+                            {p}
+                          </Chip>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                  <div className="text-xs text-primary font-mono">{c.protocols}</div>
-                  <div className="text-xs text-default-500 leading-relaxed">{c.desc}</div>
-                  <div className="rounded-lg bg-default-100/80 dark:bg-default-100/40 px-2.5 py-2 text-xs text-default-600">
-                    💡 {c.tip}
-                  </div>
-                </CardBody>
-              </Card>
-            ))}
-          </div>
+                    <div className="text-xs text-primary font-mono">{c.protocols}</div>
+                    <div className="text-xs text-default-500 leading-relaxed">{c.desc}</div>
+                    <div className="tms-inline-panel rounded-lg bg-default-100/80 dark:bg-default-100/40 px-2.5 py-2 text-xs text-default-600">
+                      💡 {c.tip}
+                    </div>
+                  </CardBody>
+                </Card>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -572,13 +664,13 @@ export default function GuidePage() {
 
               {/* 搭法 */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="rounded-lg border border-divider p-3 space-y-1">
+                <div className="tms-inline-panel rounded-lg border border-divider p-3 space-y-1">
                   <div className="text-xs text-default-400">第一层</div>
                   <div className="text-sm">
                     中转 = 前置 <b>香港</b> + 落地 <b>泰国住宅 socks</b>
                   </div>
                 </div>
-                <div className="rounded-lg border border-divider p-3 space-y-1">
+                <div className="tms-inline-panel rounded-lg border border-divider p-3 space-y-1">
                   <div className="text-xs text-default-400">第二层</div>
                   <div className="text-sm">
                     中转 = 前置 <b>河北</b> + 落地 <b>第一层那条 vless:// 链接</b>
@@ -587,15 +679,15 @@ export default function GuidePage() {
               </div>
 
               {/* 链路图 */}
-              <div className="rounded-lg bg-default-100 dark:bg-default-100/50 p-4 overflow-x-auto">
+              <div className="tms-inline-panel rounded-lg bg-default-100 dark:bg-default-100/50 p-4 overflow-x-auto">
                 <div className="flex items-center gap-2 text-sm font-mono whitespace-nowrap">
-                  <span className="px-2 py-1 rounded bg-default-200 dark:bg-default-200/70">客户端</span>
-                  <span className="text-primary text-xs">──Reality──▶</span>
-                  <span className="px-2 py-1 rounded bg-primary/15 text-primary font-medium">河北</span>
-                  <span className="text-warning text-xs">──VLESS──▶</span>
-                  <span className="px-2 py-1 rounded bg-warning/15 text-warning font-medium">香港</span>
-                  <span className="text-success text-xs">──socks5──▶</span>
-                  <span className="px-2 py-1 rounded bg-success/15 text-success font-medium">泰国住宅</span>
+                  <span className="tms-guide-hop px-2 py-1 rounded bg-default-200 dark:bg-default-200/70">客户端</span>
+                  <span className="tms-guide-arrow text-primary text-xs">──Reality──▶</span>
+                  <span className="tms-guide-hop px-2 py-1 rounded bg-primary/15 text-primary font-medium">河北</span>
+                  <span className="tms-guide-arrow text-warning text-xs">──VLESS──▶</span>
+                  <span className="tms-guide-hop px-2 py-1 rounded bg-warning/15 text-warning font-medium">香港</span>
+                  <span className="tms-guide-arrow text-success text-xs">──socks5──▶</span>
+                  <span className="tms-guide-hop px-2 py-1 rounded bg-success/15 text-success font-medium">泰国住宅</span>
                 </div>
               </div>
 
@@ -618,7 +710,7 @@ export default function GuidePage() {
       {/* 对照表 */}
       {!normalizedQuery && (
         <div id="sec-compare" className="scroll-mt-4">
-          <SectionTitle hint="横向对比">对照表</SectionTitle>
+          <SectionTitle hint="横向对比 · 窄屏可左右滑动">对照表</SectionTitle>
           <Card className="border border-divider mt-3">
             <CardBody>
               <div className="overflow-x-auto">
@@ -629,7 +721,7 @@ export default function GuidePage() {
                       {FEATURES.map((f) => (
                         <th key={f.name} className="py-2.5 pr-4 text-left">
                           <div className="flex items-center gap-1.5">
-                            <span className={`w-2 h-2 rounded-full ${f.dot}`} />
+                            <span className={`tms-guide-dot w-2 h-2 rounded-full ${f.dot}`} />
                             <span className="font-semibold">{f.name}</span>
                           </div>
                         </th>
@@ -665,29 +757,34 @@ export default function GuidePage() {
       {/* 常用排障命令一键复制 */}
       {filteredSnippets.length > 0 && (
         <div id="sec-troubleshoot" className="scroll-mt-4">
-          <SectionTitle hint="点击即可复制">常用排障命令</SectionTitle>
+          <SectionTitle hint="点击按钮即可复制">常用排障命令</SectionTitle>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mt-3">
-            {filteredSnippets.map((item) => (
-              <Card key={item.id} className="border border-divider">
-                <CardBody className="space-y-2.5">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold text-sm">{item.title}</span>
-                    <Button
-                      color="primary"
-                      size="sm"
-                      variant="flat"
-                      onPress={() => handleCopy(item.cmd, item.title)}
-                    >
-                      复制命令
-                    </Button>
-                  </div>
-                  <p className="text-xs text-default-500">{item.desc}</p>
-                  <pre className="rounded-lg bg-default-100 dark:bg-default-100/50 p-2.5 text-xs font-mono overflow-x-auto text-default-700">
-                    <code>{item.cmd}</code>
-                  </pre>
-                </CardBody>
-              </Card>
-            ))}
+            {filteredSnippets.map((item) => {
+              const isCopied = copiedId === item.id;
+              return (
+                <Card key={item.id} className="border border-divider">
+                  <CardBody className="space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold text-sm min-w-0 truncate">{item.title}</span>
+                      <Button
+                        color={isCopied ? "success" : "primary"}
+                        size="sm"
+                        variant="flat"
+                        className="shrink-0"
+                        isDisabled={copyingId === item.id}
+                        onPress={() => handleCopy(item.id, item.cmd, item.title)}
+                      >
+                        {isCopied ? "✓ 已复制" : "复制命令"}
+                      </Button>
+                    </div>
+                    <p className="text-xs text-default-500">{item.desc}</p>
+                    <pre className="rounded-lg bg-default-100 dark:bg-default-100/50 p-2.5 text-xs font-mono overflow-x-auto text-foreground">
+                      <code>{item.cmd}</code>
+                    </pre>
+                  </CardBody>
+                </Card>
+              );
+            })}
           </div>
         </div>
       )}

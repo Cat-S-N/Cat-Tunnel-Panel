@@ -1,8 +1,9 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Card, CardBody } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Input } from "@heroui/input";
 import { Chip } from "@heroui/chip";
+import { Spinner } from "@heroui/spinner";
 import toast from "react-hot-toast";
 import { getMyLines, getUserPackageInfo, deleteLine } from "@/api";
 import { isAdmin } from "@/utils/auth";
@@ -27,8 +28,45 @@ export default function MySubPage() {
   const [quantumultXEnabled, setQuantumultXEnabled] = useState<boolean>(false);
   const [account, setAccount] = useState<any>(null); // 账号到期 / 账号总流量 / 是否被停用
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const [copyingKey, setCopyingKey] = useState<string | null>(null);
+  const copyTimerRef = useRef<number | null>(null);
   const [lineTypeFilter, setLineTypeFilter] = useState<"all" | "direct" | "relay">("all");
   const [searchKeyword, setSearchKeyword] = useState("");
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
+    };
+  }, []);
+
+  const copyWithFeedback = async (key: string, text: string, successMsg: string, failMsg = "复制失败,请手动选中") => {
+    if (copyingKey === key) return;
+    setCopyingKey(key);
+    try {
+      const ok = await copyTextToClipboard(text);
+      if (ok) {
+        setCopiedKey(key);
+        if (copyTimerRef.current !== null) {
+          window.clearTimeout(copyTimerRef.current);
+        }
+        copyTimerRef.current = window.setTimeout(() => {
+          setCopiedKey(null);
+          copyTimerRef.current = null;
+        }, 2000);
+        toast.success(successMsg);
+      } else {
+        toast.error(failMsg);
+      }
+    } finally {
+      setCopyingKey(null);
+    }
+  };
 
   // 订阅链接开头:管理员设了「订阅地址(给车友的)」就用它,没设 = 网页地址(和以前一样)。
   // 和线路一起在 load() 里取,线路出来时地址已经是对的
@@ -38,9 +76,18 @@ export default function MySubPage() {
   // 用 Clash Verge、ClashMeta 的人贴上面那条会得到一个空订阅。
   const clashUrl = (token: string) => `${subBase}/api/v1/open_api/clash?token=${token}`;
 
-  const load = async () => {
+  const load = async (showFullSpinner = false) => {
+    if (showFullSpinner) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
     try {
-      const [ln, pkg, sb] = await Promise.all([getMyLines(), getUserPackageInfo(), getSubBase()]);
+      const [ln, pkg, sb] = await Promise.all([
+        getMyLines(),
+        getUserPackageInfo().catch(() => ({ code: -1, data: null } as any)),
+        getSubBase(),
+      ]);
       setSubBase(sb);
       if (ln.code === 0) {
         // 后端返回结构从数组改成了 {lines, allSubToken},这里两种都认,
@@ -50,16 +97,26 @@ export default function MySubPage() {
         setSocksNodes(!Array.isArray(d) && Array.isArray(d?.socksNodes) ? d.socksNodes : []);
         if (!Array.isArray(d) && d?.allSubToken) setAllSubToken(d.allSubToken);
         setQuantumultXEnabled(!Array.isArray(d) && d?.quantumultXEnabled === true);
+        setLoadError(null);
+        setHasLoaded(true);
+      } else {
+        const msg = ln.msg || "加载订阅线路失败";
+        setLoadError(msg);
+        toast.error(msg);
       }
       if (pkg.code === 0) setAccount(pkg.data?.userInfo || null);
     } catch (e) {
-      toast.error("加载失败");
+      const msg = "网络异常，加载订阅线路失败";
+      setLoadError(msg);
+      toast.error(msg);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
-    load();
+    load(true);
   }, []);
 
   const GB = 1024 * 1024 * 1024;
@@ -116,20 +173,31 @@ export default function MySubPage() {
       toast.error("当前筛选下没有可复制的订阅链接");
       return;
     }
-    const ok = await copyTextToClipboard(urls.join("\n"));
-    if (ok) {
-      toast.success(`已复制 ${urls.length} 条订阅链接`);
-    } else {
-      toast.error("复制失败");
-    }
+    await copyWithFeedback("batch", urls.join("\n"), `已复制 ${urls.length} 条订阅链接`, "复制失败");
   };
 
   return (
     <div className="p-4 space-y-4 max-w-4xl">
-      <div className="flex items-baseline gap-3">
-        <h1 className="text-xl font-bold">我的订阅</h1>
-        <span className="text-sm text-default-500">共 {lines.length} 条线路,每条各自独立</span>
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-baseline gap-3 flex-wrap">
+          <h1 className="text-xl font-bold">我的订阅</h1>
+          <span className="text-sm text-default-500">共 {lines.length} 条线路,每条各自独立</span>
+        </div>
+        <Button size="sm" variant="flat" isLoading={refreshing} onPress={() => load(false)}>
+          刷新
+        </Button>
       </div>
+
+      {loadError && hasLoaded && (
+        <div className="tms-inline-alert-danger rounded-lg border border-danger/40 bg-danger/10 px-3.5 py-2.5 flex items-center justify-between gap-3 flex-wrap">
+          <div className="text-xs sm:text-sm text-danger font-medium min-w-0 break-words">
+            ⚠️ 刷新失败：{loadError}（当前展示上次已加载的数据）
+          </div>
+          <Button size="sm" color="danger" variant="flat" isLoading={refreshing} onPress={() => load(false)}>
+            重试
+          </Button>
+        </div>
+      )}
 
       {!loading && account && (
         <div className="text-sm flex items-center gap-6 flex-wrap">
@@ -191,29 +259,37 @@ export default function MySubPage() {
               value={subUrl(allSubToken)}
               onClick={(e: any) => { if (e.target?.select) e.target.select(); }}
             />
-            <div className="flex gap-2 items-start">
+            <div className="flex flex-wrap gap-2 items-start">
               <Button
                 size="sm"
-                color="primary"
-                onPress={async () => {
-                  (await copyTextToClipboard(subUrl(allSubToken)))
-                    ? toast.success("已复制,去客户端粘贴")
-                    : toast.error("复制失败,点框内已全选,按 Ctrl+C");
-                }}
+                color={copiedKey === "all-sub" ? "success" : "primary"}
+                isDisabled={copyingKey === "all-sub"}
+                onPress={() =>
+                  copyWithFeedback(
+                    "all-sub",
+                    subUrl(allSubToken),
+                    "已复制,去客户端粘贴",
+                    "复制失败,点框内已全选,按 Ctrl+C",
+                  )
+                }
               >
-                复制订阅链接
+                {copiedKey === "all-sub" ? "✓ 已复制订阅" : "复制订阅链接"}
               </Button>
               <SubQrToggle url={subUrl(allSubToken)} />
               <Button
                 size="sm"
+                color={copiedKey === "all-clash" ? "success" : "default"}
                 variant="flat"
-                onPress={async () => {
-                  (await copyTextToClipboard(clashUrl(allSubToken)))
-                    ? toast.success("已复制 Clash / Mihomo 版")
-                    : toast.error("复制失败,请手动选中");
-                }}
+                isDisabled={copyingKey === "all-clash"}
+                onPress={() =>
+                  copyWithFeedback(
+                    "all-clash",
+                    clashUrl(allSubToken),
+                    "已复制 Clash / Mihomo 版",
+                  )
+                }
               >
-                Clash / Mihomo 版
+                {copiedKey === "all-clash" ? "✓ 已复制 Clash 版" : "Clash / Mihomo 版"}
               </Button>
             </div>
             {quantumultXEnabled && <QuanxSubscription base={subBase} token={allSubToken} />}
@@ -230,13 +306,28 @@ export default function MySubPage() {
         </Card>
       )}
 
-      {loading ? (
-        <div className="text-center text-default-400 py-8">加载中...</div>
+      {loading && !hasLoaded ? (
+        <div className="flex items-center justify-center py-12 gap-3">
+          <Spinner size="sm" />
+          <span className="text-sm text-default-500">正在加载订阅线路...</span>
+        </div>
+      ) : loadError && !hasLoaded ? (
+        <Card className="tms-alert-card-danger border border-danger/40 bg-danger/5">
+          <CardBody className="py-10 text-center space-y-3">
+            <div className="text-sm font-semibold text-danger">加载订阅线路失败</div>
+            <div className="text-xs text-default-500 break-words">{loadError}</div>
+            <div>
+              <Button size="sm" color="primary" variant="flat" onPress={() => load(true)}>
+                重试加载
+              </Button>
+            </div>
+          </CardBody>
+        </Card>
       ) : lines.length === 0 ? (
-        <Card>
-          <CardBody className="text-center text-default-400 py-8">
-            还没有线路。管理员在「协议管理」或「中转」的机器卡上点「分配用户」给你开通;
-            如果你就是管理员、想自己用,点那张卡上的「🔑 我自己用」即可。
+        <Card className="border border-divider">
+          <CardBody className="text-center text-default-500 py-10 text-sm leading-relaxed">
+            还没有可用线路。管理员在「协议管理」或「中转」的机器卡上点「分配用户」给你开通；
+            如果你就是管理员、想自己用，点那张卡上的「🔑 我自己用」即可。
           </CardBody>
         </Card>
       ) : (
@@ -248,17 +339,17 @@ export default function MySubPage() {
               <Chip size="sm" variant="flat" color="warning">中转：{lineStats.relayCount}</Chip>
               <Chip size="sm" variant="flat" color="secondary">总协议：{lineStats.totalProtocols}</Chip>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
               <Input
                 size="sm"
-                className="w-48"
+                className="w-full sm:w-48"
                 placeholder="搜索节点 / 落地名称"
                 isClearable
                 value={searchKeyword}
                 onValueChange={setSearchKeyword}
                 onClear={() => setSearchKeyword("")}
               />
-              <div className="flex items-center gap-1">
+              <div className="flex flex-wrap items-center gap-1">
                 {(
                   [
                     { key: "all", label: "全部" },
@@ -285,12 +376,12 @@ export default function MySubPage() {
               </div>
               <Button
                 size="sm"
-                color="primary"
+                color={copiedKey === "batch" ? "success" : "primary"}
                 variant="flat"
-                isDisabled={filteredLines.length === 0}
+                isDisabled={filteredLines.length === 0 || copyingKey === "batch"}
                 onPress={handleCopyFilteredLinks}
               >
-                📋 一键复制当前筛选全部链接
+                {copiedKey === "batch" ? "✓ 已复制当前筛选链接" : "📋 一键复制当前筛选全部链接"}
               </Button>
             </div>
           </div>
@@ -368,28 +459,36 @@ export default function MySubPage() {
                     value={url}
                     onClick={(e: any) => { if (e.target?.select) e.target.select(); }}
                   />
-                  <div className="flex gap-2 items-start">
+                  <div className="flex flex-wrap gap-2 items-start">
                     <Button
                       size="sm"
-                      color="primary"
-                      onPress={async () => {
-                        (await copyTextToClipboard(url))
-                          ? toast.success("已复制,去客户端粘贴")
-                          : toast.error("复制失败,点框内已全选,按 Ctrl+C");
-                      }}
+                      color={copiedKey === `sub-${idx}` ? "success" : "primary"}
+                      isDisabled={copyingKey === `sub-${idx}`}
+                      onPress={() =>
+                        copyWithFeedback(
+                          `sub-${idx}`,
+                          url,
+                          "已复制,去客户端粘贴",
+                          "复制失败,点框内已全选,按 Ctrl+C",
+                        )
+                      }
                     >
-                      复制订阅链接
+                      {copiedKey === `sub-${idx}` ? "✓ 已复制订阅" : "复制订阅链接"}
                     </Button>
                     <Button
                       size="sm"
+                      color={copiedKey === `clash-${idx}` ? "success" : "default"}
                       variant="flat"
-                      onPress={async () => {
-                        (await copyTextToClipboard(clashUrl(ln.subToken)))
-                          ? toast.success("已复制 Clash / Mihomo 订阅链接")
-                          : toast.error("复制失败,请手动选中");
-                      }}
+                      isDisabled={copyingKey === `clash-${idx}`}
+                      onPress={() =>
+                        copyWithFeedback(
+                          `clash-${idx}`,
+                          clashUrl(ln.subToken),
+                          "已复制 Clash / Mihomo 订阅链接",
+                        )
+                      }
                     >
-                      Clash 版
+                      {copiedKey === `clash-${idx}` ? "✓ 已复制 Clash 版" : "Clash 版"}
                     </Button>
                     <SubQrToggle url={url} />
                     {/* 删除只给管理员看。这一页车友也在用,而删线路是不可逆的 ——
@@ -412,7 +511,7 @@ export default function MySubPage() {
                             const res = await deleteLine(myId, ln.nodeId, ln.landingId ?? null);
                             if (res.code === 0) {
                               toast.success("已删掉这条线路");
-                              await load();
+                              await load(false);
                             } else {
                               toast.error(res.msg || "删除失败");
                             }

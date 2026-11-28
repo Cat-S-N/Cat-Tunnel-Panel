@@ -1,7 +1,9 @@
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Modal, ModalContent, ModalHeader, ModalBody } from "@heroui/modal";
-import { useState, useEffect } from "react";
+import { Spinner } from "@heroui/spinner";
+import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { Input } from "@heroui/input";
 import toast from 'react-hot-toast';
 import { copyTextToClipboard } from "@/utils/clipboard";
@@ -61,7 +63,11 @@ interface StatisticsFlow {
 }
 
 export default function DashboardPage() {
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [userInfo, setUserInfo] = useState<UserInfo>({} as UserInfo);
   const [userTunnels, setUserTunnels] = useState<UserTunnel[]>([]);
   const [forwardList, setForwardList] = useState<Forward[]>([]);
@@ -71,8 +77,19 @@ export default function DashboardPage() {
   const [addressModalOpen, setAddressModalOpen] = useState(false);
   const [addressModalTitle, setAddressModalTitle] = useState('');
   const [addressList, setAddressList] = useState<AddressItem[]>([]);
+  const [copyingAll, setCopyingAll] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const copyTimerRef = useRef<number | null>(null);
   const [forwardSearch, setForwardSearch] = useState('');
   const [, setSkinVersion] = useState(0);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const onSkinChanged = () => setSkinVersion((v) => v + 1);
@@ -204,53 +221,66 @@ export default function DashboardPage() {
     localStorage.setItem('e', '/dashboard');
   }, []);
 
-  const loadPackageData = async () => {
-    setLoading(true);
+  const loadPackageData = async (showFullSpinner = true) => {
+    if (showFullSpinner) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
     try {
       const res = await getUserPackageInfo();
-      if (res.code === 0) {
+      if (res.code === 0 && res.data) {
         const data = res.data;
-        setUserInfo(data.userInfo || {});
+        setUserInfo(data.userInfo || ({} as UserInfo));
         setUserTunnels(data.tunnelPermissions || []);
         setForwardList(data.forwards || []);
         setStatisticsFlows(data.statisticsFlows || []);
+        setLoadError(null);
+        setHasLoaded(true);
         
         // 检查有效期并显示通知
-        checkExpirationNotifications(data.userInfo, data.tunnelPermissions || []);
+        checkExpirationNotifications(data.userInfo || ({} as UserInfo), data.tunnelPermissions || []);
       } else {
-        toast.error(res.msg || '获取套餐信息失败');
+        const msg = res?.msg || '获取套餐统计信息失败';
+        setLoadError(msg);
+        toast.error(msg);
       }
     } catch (error) {
       console.error('获取套餐信息失败:', error);
-      toast.error('获取套餐信息失败');
+      const msg = '网络异常，获取套餐统计信息失败';
+      setLoadError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
-  const formatFlow = (value: number, unit: string = 'bytes'): string => {
+  const formatFlow = (value?: number, unit: string = 'bytes'): string => {
+    const safeValue = typeof value === 'number' && !Number.isNaN(value) ? value : 0;
     // 99999 表示无限制
-    if (value === 99999) {
+    if (safeValue === 99999) {
       return '无限制';
     }
     
     if (unit === 'gb') {
-      return value + ' GB';
+      return safeValue + ' GB';
     } else {
-      if (value === 0) return '0 B';
-      if (value < 1024) return value + ' B';
-      if (value < 1024 * 1024) return (value / 1024).toFixed(2) + ' KB';
-      if (value < 1024 * 1024 * 1024) return (value / (1024 * 1024)).toFixed(2) + ' MB';
-      return (value / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
+      if (safeValue === 0) return '0 B';
+      if (safeValue < 1024) return safeValue + ' B';
+      if (safeValue < 1024 * 1024) return (safeValue / 1024).toFixed(2) + ' KB';
+      if (safeValue < 1024 * 1024 * 1024) return (safeValue / (1024 * 1024)).toFixed(2) + ' MB';
+      return (safeValue / (1024 * 1024 * 1024)).toFixed(2) + ' GB';
     }
   };
 
-  const formatNumber = (value: number): string => {
+  const formatNumber = (value?: number): string => {
+    const safeValue = typeof value === 'number' && !Number.isNaN(value) ? value : 0;
     // 99999 表示无限制
-    if (value === 99999) {
+    if (safeValue === 99999) {
       return '无限制';
     }
-    return value.toString();
+    return safeValue.toString();
   };
 
   // 处理24小时流量统计数据
@@ -353,8 +383,8 @@ export default function DashboardPage() {
   };
 
   const getUsageColor = (percentage: number) => {
-    if (percentage >= 90) return 'bg-red-500 dark:bg-red-600';
-    if (percentage >= 70) return 'bg-orange-500 dark:bg-orange-600';
+    if (percentage >= 90) return 'tms-progress-danger bg-red-500 dark:bg-red-600';
+    if (percentage >= 70) return 'tms-progress-warning bg-orange-500 dark:bg-orange-600';
     return 'bg-blue-500 dark:bg-blue-600';
   };
 
@@ -512,13 +542,24 @@ export default function DashboardPage() {
     return addresses.length > 1;
   };
 
-  const showAddressModal = (ipString: string, port: number, title: string) => {
+  const markCopied = (key: string) => {
+    setCopiedKey(key);
+    if (copyTimerRef.current !== null) {
+      window.clearTimeout(copyTimerRef.current);
+    }
+    copyTimerRef.current = window.setTimeout(() => {
+      setCopiedKey(null);
+      copyTimerRef.current = null;
+    }, 1800);
+  };
+
+  const showAddressModal = (ipString: string, port: number, title: string, chipKey?: string) => {
     if (!ipString || !port) return;
     
     const ips = ipString.split(',').map(ip => ip.trim()).filter(ip => ip);
     
     if (ips.length <= 1) {
-              copyToClipboard(formatInAddress(ipString, port));
+      copyToClipboard(formatInAddress(ipString, port), title, chipKey);
       return;
     }
     
@@ -542,13 +583,13 @@ export default function DashboardPage() {
     setAddressModalOpen(true);
   };
 
-  const showRemoteAddressModal = (remoteAddr: string, title: string) => {
+  const showRemoteAddressModal = (remoteAddr: string, title: string, chipKey?: string) => {
     if (!remoteAddr) return;
     
     const addresses = remoteAddr.split(',').map(addr => addr.trim()).filter(addr => addr);
     
     if (addresses.length <= 1) {
-              copyToClipboard(remoteAddr);
+      copyToClipboard(addresses[0] || remoteAddr, title, chipKey);
       return;
     }
     
@@ -566,20 +607,22 @@ export default function DashboardPage() {
     setAddressModalOpen(true);
   };
 
-  const copyToClipboard = async (text: string) => {
+  const copyToClipboard = async (text: string, label?: string, key?: string) => {
     if (await copyTextToClipboard(text)) {
-      toast.success(`已复制`);
+      if (key) markCopied(key);
+      toast.success(label ? `已复制${label}` : '已复制');
     } else {
       toast.error('复制失败,请手动选择文本复制');
     }
   };
 
   const copyAddress = async (addressItem: AddressItem) => {
+    if (addressItem.copying) return;
     try {
       setAddressList(prev => prev.map(item => 
         item.id === addressItem.id ? { ...item, copying: true } : item
       ));
-      await copyToClipboard(addressItem.address);
+      await copyToClipboard(addressItem.address, '地址', `modal-${addressItem.id}`);
     } catch (error) {
       toast.error('复制失败');
     } finally {
@@ -590,9 +633,14 @@ export default function DashboardPage() {
   };
 
   const copyAllAddresses = async () => {
-    if (addressList.length === 0) return;
-    const allAddresses = addressList.map(item => item.address).join('\n');
-    await copyToClipboard(allAddresses);
+    if (addressList.length === 0 || copyingAll) return;
+    setCopyingAll(true);
+    try {
+      const allAddresses = addressList.map(item => item.address).join('\n');
+      await copyToClipboard(allAddresses, `全部 ${addressList.length} 个地址`, 'modal-all');
+    } finally {
+      setCopyingAll(false);
+    }
   };
 
   const calculateForwardBillingFlow = (forward: Forward): number => {
@@ -606,27 +654,61 @@ export default function DashboardPage() {
   };
 
       if (loading) {
-      return (
-        
+        return (
           <div className="px-3 lg:px-6 flex-grow pt-2 lg:pt-4">
             <div className="flex items-center justify-center h-64">
               <div className="flex items-center gap-3">
-                <div className="animate-spin h-5 w-5 border-2 border-gray-200 dark:border-gray-700 border-t-gray-600 dark:border-t-gray-300 rounded-full"></div>
-                <span className="text-default-600">正在加载数据...</span>
+                <Spinner size="sm" />
+                <span className="text-default-600">正在加载仪表盘数据...</span>
               </div>
             </div>
           </div>
-        
-      );
-    }
+        );
+      }
+
+      if (loadError && !hasLoaded) {
+        return (
+          <div className="px-3 lg:px-6 py-6 lg:py-8">
+            <Card className="tms-alert-card-danger border border-danger/40 bg-danger/5">
+              <CardBody className="py-12 text-center space-y-4">
+                <div className="space-y-1.5">
+                  <h3 className="text-base font-semibold text-danger">仪表盘数据加载失败</h3>
+                  <p className="text-sm text-default-500 max-w-md mx-auto break-words">{loadError}</p>
+                </div>
+                <div>
+                  <Button color="primary" size="sm" variant="flat" onPress={() => loadPackageData(true)}>
+                    重试加载
+                  </Button>
+                </div>
+              </CardBody>
+            </Card>
+          </div>
+        );
+      }
 
       return (
       
         <div className="px-3 lg:px-6 py-2 lg:py-4">
+          {loadError && hasLoaded && (
+            <div className="tms-inline-alert-danger mb-4 rounded-lg border border-danger/40 bg-danger/10 px-3.5 py-2.5 flex items-center justify-between gap-3 flex-wrap">
+              <div className="text-xs sm:text-sm text-danger font-medium min-w-0 break-words">
+                ⚠️ 刷新失败：{loadError}（当前展示上次已加载的数据）
+              </div>
+              <Button
+                size="sm"
+                color="danger"
+                variant="flat"
+                isLoading={refreshing}
+                onPress={() => loadPackageData(false)}
+              >
+                重试
+              </Button>
+            </div>
+          )}
 
                           {/* 响应式统计卡片 */}
          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mb-6 lg:mb-8">
-           <Card className="border border-gray-200 dark:border-default-200 shadow-md hover:shadow-lg transition-shadow">
+           <Card className="border border-divider shadow-md hover:shadow-lg transition-shadow">
              <CardBody className="p-3 lg:p-4">
                <div className="flex flex-col space-y-2">
                  <div className="flex items-center justify-between">
@@ -642,7 +724,7 @@ export default function DashboardPage() {
              </CardBody>
            </Card>
 
-           <Card className="border border-gray-200 dark:border-default-200 shadow-md hover:shadow-lg transition-shadow">
+           <Card className="border border-divider shadow-md hover:shadow-lg transition-shadow">
              <CardBody className="p-3 lg:p-4">
                <div className="flex flex-col space-y-2">
                  <div className="flex items-center justify-between">
@@ -676,7 +758,7 @@ export default function DashboardPage() {
 
            {/* 转发配额/已用转发 = 内部管道口径,车友看了会误解(以为超额),仅管理员显示 */}
            {isAdmin && (
-           <Card className="border border-gray-200 dark:border-default-200 shadow-md hover:shadow-lg transition-shadow">
+           <Card className="border border-divider shadow-md hover:shadow-lg transition-shadow">
              <CardBody className="p-3 lg:p-4">
                <div className="flex flex-col space-y-2">
                  <div className="flex items-center justify-between">
@@ -694,7 +776,7 @@ export default function DashboardPage() {
            )}
 
            {isAdmin && (
-           <Card className="border border-gray-200 dark:border-default-200 shadow-md hover:shadow-lg transition-shadow">
+           <Card className="border border-divider shadow-md hover:shadow-lg transition-shadow">
              <CardBody className="p-3 lg:p-4">
                <div className="flex flex-col space-y-2">
                  <div className="flex items-center justify-between">
@@ -719,23 +801,46 @@ export default function DashboardPage() {
          </div>
 
          {/* 24小时流量统计图表 */}
-         <Card className="mb-6 lg:mb-8 border border-gray-200 dark:border-default-200 shadow-md">
+         <Card className="mb-6 lg:mb-8 border border-divider shadow-md">
            <CardHeader className="pb-3">
-             <div className="flex items-center gap-2">
-               <svg className="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20">
-                 <path d="M2 10a8 8 0 018-8v8h8a8 8 0 11-16 0z" />
-                 <path d="M12 2.252A8.014 8.014 0 0117.748 8H12V2.252z" />
-               </svg>
-               <h2 className="text-lg lg:text-xl font-semibold text-foreground">24小时流量统计</h2>
+             <div className="flex items-center justify-between gap-2 flex-wrap w-full">
+               <div className="flex items-center gap-2">
+                 <svg className="w-5 h-5 text-primary" fill="currentColor" viewBox="0 0 20 20">
+                   <path d="M2 10a8 8 0 018-8v8h8a8 8 0 11-16 0z" />
+                   <path d="M12 2.252A8.014 8.014 0 0117.748 8H12V2.252z" />
+                 </svg>
+                 <h2 className="text-lg lg:text-xl font-semibold text-foreground">24小时流量统计</h2>
+               </div>
+               <Button
+                 size="sm"
+                 variant="flat"
+                 isLoading={refreshing}
+                 onPress={() => loadPackageData(false)}
+               >
+                 刷新数据
+               </Button>
              </div>
            </CardHeader>
            <CardBody className="pt-0">
              {statisticsFlows.length === 0 ? (
-               <div className="text-center py-12">
-                 <svg className="w-12 h-12 text-default-400 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+               <div className="text-center py-12 space-y-3">
+                 <svg className="w-12 h-12 text-default-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                  </svg>
-                 <p className="text-default-500">暂无流量统计数据</p>
+                 <div className="space-y-1">
+                   <p className="text-default-600 font-medium text-sm">暂无 24 小时流量统计数据</p>
+                   <p className="text-xs text-default-400">流量产生后系统每整点自动汇总一次趋势图</p>
+                 </div>
+                 {isAdmin && (
+                   <div className="flex items-center justify-center gap-2 flex-wrap pt-1">
+                     <Button size="sm" variant="flat" color="primary" onPress={() => navigate('/inbound')}>
+                       前往协议管理
+                     </Button>
+                     <Button size="sm" variant="flat" onPress={() => navigate('/forward')}>
+                       前往转发管理
+                     </Button>
+                   </div>
+                 )}
                </div>
              ) : (
                <div className="space-y-4">
@@ -888,7 +993,7 @@ export default function DashboardPage() {
 
                  {/* 转发配置 = 协议/中转的内部管道明细,车友看不懂也不该看 → 仅管理员 */}
          {isAdmin && (
-         <Card className="border border-gray-200 dark:border-default-200 shadow-md">
+         <Card className="border border-divider shadow-md">
            <CardHeader className="pb-3">
              <div className="flex items-center justify-between flex-wrap gap-2 w-full">
                <div className="flex items-center gap-2">
@@ -919,52 +1024,62 @@ export default function DashboardPage() {
                 <svg className="w-12 h-12 text-default-400 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
                 </svg>
-                <p className="text-default-500">
-                  {forwardList.length > 0 && forwardSearch.trim() ? '无匹配转发配置' : '暂无转发配置'}
+                <p className="text-default-500 text-sm">
+                  {forwardList.length > 0 && forwardSearch.trim() ? '当前搜索条件下无匹配转发配置' : '当前账号暂无转发配置'}
                 </p>
-                {forwardList.length > 0 && forwardSearch.trim() && (
+                {forwardList.length > 0 && forwardSearch.trim() ? (
                   <Button size="sm" color="primary" variant="flat" onPress={() => setForwardSearch('')}>
                     重置搜索
+                  </Button>
+                ) : (
+                  <Button size="sm" color="primary" variant="flat" onPress={() => navigate('/forward')}>
+                    前往转发管理创建
                   </Button>
                 )}
               </div>
             ) : (
                              <div className="space-y-4">
                  {groupedForwards().map((group) => (
-                   <div key={group.tunnelName} className="border border-gray-200 dark:border-default-100 rounded-lg p-3 lg:p-4">
-                     <div className="flex items-center justify-between mb-3">
-                       <h3 className="font-semibold text-foreground">{group.tunnelName}</h3>
-                       <span className="px-2 py-1 bg-primary-100 dark:bg-primary-500/20 text-primary-700 dark:text-primary-300 rounded-md text-sm">
+                   <div key={group.tunnelName} className="tms-subpanel border border-divider rounded-lg p-3 lg:p-4">
+                     <div className="flex items-center justify-between gap-2 mb-3">
+                       <h3 className="font-semibold text-foreground truncate min-w-0">{group.tunnelName}</h3>
+                       <span className="tms-mono-badge px-2 py-1 bg-primary-100 dark:bg-primary-500/20 text-primary-700 dark:text-primary-300 rounded-md text-xs shrink-0">
                          {group.forwards.length} 个转发
                        </span>
                      </div>
                      
                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
                        {group.forwards.map((forward) => (
-                         <div key={forward.id} className="bg-white dark:bg-default-100/50 border border-gray-200 dark:border-default-200 rounded-lg p-3 hover:shadow-md transition-shadow">
+                         <div key={forward.id} className="tms-subpanel-card bg-white dark:bg-default-100/50 border border-divider rounded-lg p-3 hover:shadow-md transition-shadow">
                           <div className="space-y-3">
                             <div>
                               <h4 className="font-medium text-foreground text-sm mb-2 truncate">{forward.name}</h4>
                               <div className="space-y-1">
                                 <code 
-                                  className={`tms-addr-chip block px-2 py-1 bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-300 rounded font-mono text-xs truncate ${hasMultipleIps(forward.inIp) ? 'cursor-pointer hover:bg-green-200 dark:hover:bg-green-500/30' : ''}`}
-                                  onClick={() => hasMultipleIps(forward.inIp) && showAddressModal(forward.inIp, forward.inPort, '入口地址')}
-                                  title={formatInAddress(forward.inIp, forward.inPort)}
+                                  className="tms-addr-chip flex items-center justify-between gap-1 px-2 py-1 bg-green-100 dark:bg-green-500/20 text-green-700 dark:text-green-300 rounded font-mono text-xs cursor-pointer hover:bg-green-200 dark:hover:bg-green-500/30 transition-colors"
+                                  onClick={() => showAddressModal(forward.inIp, forward.inPort, '入口地址', `in-${forward.id}`)}
+                                  title={hasMultipleIps(forward.inIp) ? `点击查看全部入口地址：${formatInAddress(forward.inIp, forward.inPort)}` : `点击复制入口地址：${formatInAddress(forward.inIp, forward.inPort)}`}
                                 >
-                                  {formatInAddress(forward.inIp, forward.inPort)}
+                                  <span className="truncate min-w-0">{formatInAddress(forward.inIp, forward.inPort)}</span>
+                                  <span className="shrink-0 text-[10px] opacity-75">
+                                    {copiedKey === `in-${forward.id}` ? '✓' : hasMultipleIps(forward.inIp) ? '⋯' : '📋'}
+                                  </span>
                                 </code>
                                 <div className="text-center text-default-400 text-xs">↓</div>
                                 <code 
-                                  className={`tms-addr-chip block px-2 py-1 bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 rounded font-mono text-xs truncate ${hasMultipleRemoteAddresses(forward.remoteAddr) ? 'cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-500/30' : ''}`}
-                                  onClick={() => hasMultipleRemoteAddresses(forward.remoteAddr) && showRemoteAddressModal(forward.remoteAddr, '出口地址')}
-                                  title={formatRemoteAddress(forward.remoteAddr)}
+                                  className="tms-addr-chip flex items-center justify-between gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 rounded font-mono text-xs cursor-pointer hover:bg-blue-200 dark:hover:bg-blue-500/30 transition-colors"
+                                  onClick={() => showRemoteAddressModal(forward.remoteAddr, '出口地址', `out-${forward.id}`)}
+                                  title={hasMultipleRemoteAddresses(forward.remoteAddr) ? `点击查看全部出口地址：${formatRemoteAddress(forward.remoteAddr)}` : `点击复制出口地址：${formatRemoteAddress(forward.remoteAddr)}`}
                                 >
-                                  {formatRemoteAddress(forward.remoteAddr)}
+                                  <span className="truncate min-w-0">{formatRemoteAddress(forward.remoteAddr)}</span>
+                                  <span className="shrink-0 text-[10px] opacity-75">
+                                    {copiedKey === `out-${forward.id}` ? '✓' : hasMultipleRemoteAddresses(forward.remoteAddr) ? '⋯' : '📋'}
+                                  </span>
                                 </code>
                               </div>
                             </div>
                             
-                            <div className="pt-2 border-t border-gray-200 dark:border-default-200">
+                            <div className="pt-2 border-t border-divider">
                               <div className="grid grid-cols-3 gap-1 text-xs">
                                 <div className="text-center">
                                   <div className="text-default-500 mb-1">上传</div>
@@ -1001,25 +1116,36 @@ export default function DashboardPage() {
             <ModalHeader className="text-base">{addressModalTitle}</ModalHeader>
             <ModalBody className="pb-6">
               <div className="mb-4 text-right">
-                <Button size="sm" onClick={copyAllAddresses}>
-                  复制全部
+                <Button
+                  size="sm"
+                  color={copiedKey === 'modal-all' ? 'success' : 'primary'}
+                  variant="flat"
+                  isLoading={copyingAll}
+                  onPress={copyAllAddresses}
+                >
+                  {copiedKey === 'modal-all' ? '✓ 已复制全部' : `复制全部 (${addressList.length})`}
                 </Button>
               </div>
               
               <div className="space-y-2 max-h-60 overflow-y-auto">
-                {addressList.map((item) => (
-                  <div key={item.id} className="flex justify-between items-center p-3 border border-default-200 dark:border-default-100 rounded-lg">
-                    <code className="text-sm flex-1 mr-3 text-foreground">{item.address}</code>
+                {addressList.map((item) => {
+                  const rowKey = `modal-${item.id}`;
+                  return (
+                  <div key={item.id} className="tms-subpanel-card flex justify-between items-center gap-3 p-3 border border-default-200 dark:border-default-100 rounded-lg">
+                    <code className="text-sm font-mono flex-1 min-w-0 break-all text-foreground">{item.address}</code>
                     <Button
                       size="sm"
+                      color={copiedKey === rowKey ? 'success' : 'default'}
                       variant="light"
+                      className="shrink-0"
                       isLoading={item.copying}
-                      onClick={() => copyAddress(item)}
+                      onPress={() => copyAddress(item)}
                     >
-                      复制
+                      {copiedKey === rowKey ? '✓ 已复制' : '复制'}
                     </Button>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </ModalBody>
           </ModalContent>

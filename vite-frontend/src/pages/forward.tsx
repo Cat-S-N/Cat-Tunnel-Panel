@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Card, CardBody, CardHeader } from "@heroui/card";
 import { Button } from "@heroui/button";
 import { Input } from "@heroui/input";
@@ -151,6 +151,9 @@ interface TunnelGroup {
 
 export default function ForwardPage() {
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [forwards, setForwards] = useState<Forward[]>([]);
   // 搭协议/搭中转自动建的管道,默认收起来;排障时才展开看
   const [showProtocolForwards, setShowProtocolForwards] = useState(false);
@@ -219,6 +222,29 @@ export default function ForwardPage() {
   const [diagnosisResult, setDiagnosisResult] = useState<DiagnosisResult | null>(null);
   const [addressModalTitle, setAddressModalTitle] = useState('');
   const [addressList, setAddressList] = useState<AddressItem[]>([]);
+  const [togglingIds, setTogglingIds] = useState<Set<number>>(new Set());
+  const [copyingAll, setCopyingAll] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const copyTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (copyTimerRef.current !== null) {
+        window.clearTimeout(copyTimerRef.current);
+      }
+    };
+  }, []);
+
+  const markCopied = (key: string) => {
+    setCopiedKey(key);
+    if (copyTimerRef.current !== null) {
+      window.clearTimeout(copyTimerRef.current);
+    }
+    copyTimerRef.current = window.setTimeout(() => {
+      setCopiedKey(null);
+      copyTimerRef.current = null;
+    }, 1800);
+  };
   
   // 导出相关状态
   const [exportModalOpen, setExportModalOpen] = useState(false);
@@ -320,7 +346,11 @@ export default function ForwardPage() {
 
   // 加载所有数据
   const loadData = async (lod = true) => {
-    setLoading(lod);
+    if (lod) {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
     try {
       const [forwardsRes, tunnelsRes, speedRulesRes, inboundsRes] = await Promise.all([
         getForwardList(),
@@ -336,6 +366,8 @@ export default function ForwardPage() {
           serviceRunning: forward.status === 1
         })) || [];
         setForwards(forwardsData);
+        setLoadError(null);
+        setHasLoaded(true);
         
         // 初始化拖拽排序顺序
         if (viewMode === 'direct') {
@@ -388,7 +420,9 @@ export default function ForwardPage() {
           }
         }
       } else {
-        toast.error(forwardsRes.msg || '获取转发列表失败');
+        const msg = forwardsRes.msg || '获取转发列表失败';
+        setLoadError(msg);
+        toast.error(msg);
       }
       
       if (tunnelsRes.code === 0) {
@@ -406,9 +440,12 @@ export default function ForwardPage() {
       }
     } catch (error) {
       console.error('加载数据失败:', error);
-      toast.error('加载数据失败');
+      const msg = '网络异常，加载转发数据失败';
+      setLoadError(msg);
+      toast.error(msg);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -548,7 +585,7 @@ export default function ForwardPage() {
 
   // 确认删除转发
   const confirmDelete = async () => {
-    if (!forwardToDelete) return;
+    if (!forwardToDelete || deleteLoading) return;
     
     setDeleteLoading(true);
     try {
@@ -613,6 +650,7 @@ export default function ForwardPage() {
 
   // 提交表单
   const handleSubmit = async () => {
+    if (submitLoading) return;
     if (!validateForm()) return;
     
     setSubmitLoading(true);
@@ -681,12 +719,18 @@ export default function ForwardPage() {
 
   // 处理服务开关
   const handleServiceToggle = async (forward: Forward) => {
+    if (togglingIds.has(forward.id)) return;
     if (forward.status !== 1 && forward.status !== 0) {
       toast.error('转发状态异常，无法操作');
       return;
     }
 
     const targetState = !forward.serviceRunning;
+    setTogglingIds((prev) => {
+      const next = new Set(prev);
+      next.add(forward.id);
+      return next;
+    });
     
     try {
       // 乐观更新UI
@@ -729,6 +773,12 @@ export default function ForwardPage() {
       ));
       console.error('服务开关操作失败:', error);
       toast.error('网络错误，操作失败');
+    } finally {
+      setTogglingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(forward.id);
+        return next;
+      });
     }
   };
 
@@ -845,7 +895,7 @@ export default function ForwardPage() {
   };
 
   // 显示地址列表弹窗
-  const showAddressModal = (addressString: string, port: number | null, title: string) => {
+  const showAddressModal = (addressString: string, port: number | null, title: string, chipKey?: string) => {
     if (!addressString) return;
     
     let addresses: string[];
@@ -853,7 +903,7 @@ export default function ForwardPage() {
       // 入口地址处理
       const ips = addressString.split(',').map(ip => ip.trim()).filter(ip => ip);
       if (ips.length <= 1) {
-        copyToClipboard(formatInAddress(addressString, port), title);
+        copyToClipboard(formatInAddress(addressString, port), title, chipKey);
         return;
       }
       addresses = ips.map(ip => {
@@ -867,7 +917,7 @@ export default function ForwardPage() {
       // 远程地址处理
       addresses = addressString.split(',').map(addr => addr.trim()).filter(addr => addr);
       if (addresses.length <= 1) {
-        copyToClipboard(addressString, title);
+        copyToClipboard(addresses[0] || addressString, title, chipKey);
         return;
       }
     }
@@ -882,8 +932,9 @@ export default function ForwardPage() {
   };
 
   // 复制到剪贴板(兼容 http 非安全上下文)
-  const copyToClipboard = async (text: string, label: string = '内容') => {
+  const copyToClipboard = async (text: string, label: string = '内容', key?: string) => {
     if (await copyTextToClipboard(text)) {
+      if (key) markCopied(key);
       toast.success(`已复制${label}`);
     } else {
       toast.error('复制失败,请手动选择文本复制');
@@ -892,11 +943,12 @@ export default function ForwardPage() {
 
   // 复制地址
   const copyAddress = async (addressItem: AddressItem) => {
+    if (addressItem.copying) return;
     try {
       setAddressList(prev => prev.map(item => 
         item.id === addressItem.id ? { ...item, copying: true } : item
       ));
-      await copyToClipboard(addressItem.address, '地址');
+      await copyToClipboard(addressItem.address, '地址', `modal-${addressItem.id}`);
     } catch (error) {
       toast.error('复制失败');
     } finally {
@@ -908,9 +960,14 @@ export default function ForwardPage() {
 
   // 复制所有地址
   const copyAllAddresses = async () => {
-    if (addressList.length === 0) return;
-    const allAddresses = addressList.map(item => item.address).join('\n');
-    await copyToClipboard(allAddresses, '所有地址');
+    if (addressList.length === 0 || copyingAll) return;
+    setCopyingAll(true);
+    try {
+      const allAddresses = addressList.map(item => item.address).join('\n');
+      await copyToClipboard(allAddresses, `全部 ${addressList.length} 个地址`, 'modal-all');
+    } finally {
+      setCopyingAll(false);
+    }
   };
 
     // 导出转发数据
@@ -922,6 +979,7 @@ export default function ForwardPage() {
 
   // 执行导出
   const executeExport = () => {
+    if (exportLoading) return;
     if (!selectedTunnelForExport) {
       toast.error('请选择要导出的隧道');
       return;
@@ -969,7 +1027,7 @@ export default function ForwardPage() {
 
   // 复制导出数据
   const copyExportData = async () => {
-    await copyToClipboard(exportData, '转发数据');
+    await copyToClipboard(exportData, '转发数据', 'export');
   };
 
   // 导入转发数据
@@ -982,6 +1040,7 @@ export default function ForwardPage() {
 
   // 执行导入
   const executeImport = async () => {
+    if (importLoading) return;
     if (!importData.trim()) {
       toast.error('请输入要导入的数据');
       return;
@@ -1338,13 +1397,13 @@ export default function ForwardPage() {
                 size="sm"
                 isSelected={forward.serviceRunning}
                 onValueChange={() => handleServiceToggle(forward)}
-                isDisabled={forward.status !== 1 && forward.status !== 0}
+                isDisabled={(forward.status !== 1 && forward.status !== 0) || togglingIds.has(forward.id)}
               />
               <Chip 
                 color={statusDisplay.color as any} 
                 variant="flat" 
                 size="sm"
-                className="text-xs"
+                className="text-xs shrink-0"
               >
                 {statusDisplay.text}
               </Chip>
@@ -1357,20 +1416,20 @@ export default function ForwardPage() {
             {/* 地址信息 */}
             <div className="space-y-1">
               <div 
-                className={`tms-inline-panel cursor-pointer px-2 py-1 bg-default-50 dark:bg-default-100/50 rounded border border-default-200 dark:border-default-300 transition-colors duration-200 ${
-                  hasMultipleAddresses(forward.inIp) ? 'hover:bg-default-100 dark:hover:bg-default-200/50' : ''
-                }`}
-                onClick={() => showAddressModal(forward.inIp, forward.inPort, '入口端口')}
-                title={formatInAddress(forward.inIp, forward.inPort)}
+                className="tms-inline-panel cursor-pointer px-2 py-1 bg-default-50 dark:bg-default-100/50 hover:bg-default-100 dark:hover:bg-default-200/50 rounded border border-default-200 dark:border-default-300 transition-colors duration-200"
+                onClick={() => showAddressModal(forward.inIp, forward.inPort, '入口地址', `in-${forward.id}`)}
+                title={hasMultipleAddresses(forward.inIp) ? `点击查看全部入口地址：${formatInAddress(forward.inIp, forward.inPort)}` : `点击复制入口地址：${formatInAddress(forward.inIp, forward.inPort)}`}
               >
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-1.5">
                   <div className="flex items-center gap-1.5 min-w-0 flex-1">
                     <span className="text-xs font-medium text-default-600 flex-shrink-0">入口:</span>
                     <code className="text-xs font-mono text-foreground truncate min-w-0">
                       {formatInAddress(forward.inIp, forward.inPort)}
                     </code>
                   </div>
-                  {hasMultipleAddresses(forward.inIp) && (
+                  {copiedKey === `in-${forward.id}` ? (
+                    <span className="text-[11px] font-mono text-success flex-shrink-0">✓</span>
+                  ) : (
                     <svg className="w-3 h-3 text-default-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                     </svg>
@@ -1379,20 +1438,20 @@ export default function ForwardPage() {
               </div>
               
               <div 
-                className={`tms-inline-panel cursor-pointer px-2 py-1 bg-default-50 dark:bg-default-100/50 rounded border border-default-200 dark:border-default-300 transition-colors duration-200 ${
-                  hasMultipleAddresses(forward.remoteAddr) ? 'hover:bg-default-100 dark:hover:bg-default-200/50' : ''
-                }`}
-                onClick={() => showAddressModal(forward.remoteAddr, null, '目标地址')}
-                title={formatRemoteAddress(forward.remoteAddr)}
+                className="tms-inline-panel cursor-pointer px-2 py-1 bg-default-50 dark:bg-default-100/50 hover:bg-default-100 dark:hover:bg-default-200/50 rounded border border-default-200 dark:border-default-300 transition-colors duration-200"
+                onClick={() => showAddressModal(forward.remoteAddr, null, '目标地址', `out-${forward.id}`)}
+                title={hasMultipleAddresses(forward.remoteAddr) ? `点击查看全部目标地址：${formatRemoteAddress(forward.remoteAddr)}` : `点击复制目标地址：${formatRemoteAddress(forward.remoteAddr)}`}
               >
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-1.5">
                   <div className="flex items-center gap-1.5 min-w-0 flex-1">
                     <span className="text-xs font-medium text-default-600 flex-shrink-0">目标:</span>
                     <code className="text-xs font-mono text-foreground truncate min-w-0">
                       {formatRemoteAddress(forward.remoteAddr)}
                     </code>
                   </div>
-                  {hasMultipleAddresses(forward.remoteAddr) && (
+                  {copiedKey === `out-${forward.id}` ? (
+                    <span className="text-[11px] font-mono text-success flex-shrink-0">✓</span>
+                  ) : (
                     <svg className="w-3 h-3 text-default-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                     </svg>
@@ -1468,25 +1527,137 @@ export default function ForwardPage() {
     );
   };
 
-  if (loading) {
+  if (loading && !hasLoaded) {
     return (
-      
-        <div className="flex items-center justify-center h-64">
-          <div className="flex items-center gap-3">
-            <Spinner size="sm" />
-            <span className="text-default-600">正在加载...</span>
-          </div>
+      <div className="flex items-center justify-center h-64">
+        <div className="flex items-center gap-3">
+          <Spinner size="sm" />
+          <span className="text-default-600">正在加载转发列表...</span>
         </div>
-      
+      </div>
+    );
+  }
+
+  if (loadError && !hasLoaded) {
+    return (
+      <div className="px-3 lg:px-6 py-8">
+        <Card className="tms-alert-card-danger border border-danger/40 bg-danger/5">
+          <CardBody className="py-14 text-center space-y-4">
+            <div className="space-y-1.5">
+              <h3 className="text-base font-semibold text-danger">加载转发列表失败</h3>
+              <p className="text-sm text-default-500 max-w-md mx-auto break-words">{loadError}</p>
+            </div>
+            <div>
+              <Button size="sm" color="primary" variant="flat" onPress={() => loadData(true)}>
+                重试加载
+              </Button>
+            </div>
+          </CardBody>
+        </Card>
+      </div>
     );
   }
 
   const userGroups = groupForwardsByUserAndTunnel();
+  const sortedDirectForwards = getSortedForwards();
   const protocolForwardCount = forwards.filter(f => f.protocolManaged).length;
+  const hasActiveFilters = statusFilter !== 'all' || Boolean(searchKeyword.trim());
+
+  const renderEmptyStateCard = (isDirectMode: boolean) => {
+    const hasOtherUsersRules = isDirectMode && !hasActiveFilters && forwardStats.total > 0;
+    const hasOnlyHiddenProtocolRules =
+      !hasActiveFilters && forwardStats.total === 0 && protocolForwardCount > 0 && !showProtocolForwards;
+
+    const title = hasActiveFilters
+      ? '无匹配转发规则'
+      : hasOtherUsersRules
+      ? '当前账号下暂无转发规则'
+      : hasOnlyHiddenProtocolRules
+      ? '暂无手动端口转发'
+      : '暂无转发配置';
+
+    const desc = hasActiveFilters
+      ? '当前筛选或搜索条件下没有匹配的转发规则'
+      : hasOtherUsersRules
+      ? `平铺视图仅展示当前登录账号自己的转发；系统中另有 ${forwardStats.total} 条其他用户的转发规则`
+      : hasOnlyHiddenProtocolRules
+      ? `当前尚未创建手动端口转发（另有 ${protocolForwardCount} 条协议/中转自动生成的转发已默认隐藏）`
+      : '还没有创建任何转发配置，点击下方按钮开始创建';
+
+    return (
+      <Card className="shadow-sm border border-divider">
+        <CardBody className="text-center py-16">
+          <div className="flex flex-col items-center gap-4">
+            <div className="w-16 h-16 bg-default-100 rounded-full flex items-center justify-center">
+              <svg className="w-8 h-8 text-default-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
+              </svg>
+            </div>
+            <div className="max-w-md">
+              <h3 className="text-lg font-semibold text-foreground">{title}</h3>
+              <p className="text-default-500 text-sm mt-1">{desc}</p>
+            </div>
+            <div className="flex items-center justify-center gap-2 flex-wrap">
+              {hasActiveFilters ? (
+                <Button
+                  size="sm"
+                  color="primary"
+                  variant="flat"
+                  onPress={() => {
+                    setStatusFilter('all');
+                    setSearchKeyword('');
+                    setSortBy('default');
+                  }}
+                >
+                  重置筛选
+                </Button>
+              ) : (
+                <>
+                  {hasOtherUsersRules && (
+                    <Button size="sm" color="primary" variant="solid" onPress={handleViewModeChange}>
+                      切换到分组视图查看 ({forwardStats.total})
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    color="primary"
+                    variant="flat"
+                    onPress={handleAdd}
+                  >
+                    新增转发
+                  </Button>
+                  {hasOnlyHiddenProtocolRules && (
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      onPress={() => setShowProtocolForwards(true)}
+                    >
+                      展开协议自动转发 ({protocolForwardCount})
+                    </Button>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </CardBody>
+      </Card>
+    );
+  };
 
   return (
 
       <div className="px-3 lg:px-6 py-8">
+        {loadError && hasLoaded && (
+          <div className="tms-inline-alert-danger mb-4 rounded-lg border border-danger/40 bg-danger/10 px-3.5 py-2.5 flex items-center justify-between gap-3 flex-wrap">
+            <div className="text-xs sm:text-sm text-danger font-medium min-w-0 break-words">
+              ⚠️ 刷新失败：{loadError}（当前展示上次已加载的数据）
+            </div>
+            <Button size="sm" color="danger" variant="flat" isLoading={refreshing} onPress={() => loadData(false)}>
+              重试
+            </Button>
+          </div>
+        )}
+
         {/* 页面头部 */}
         <div className="flex flex-col gap-3 mb-6">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1504,8 +1675,8 @@ export default function ForwardPage() {
                 总流量：{formatFlow(forwardStats.totalFlow)}
               </Chip>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex items-center gap-1">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+              <div className="flex flex-wrap items-center gap-1">
                 {(
                   [
                     { key: 'all', label: '全部' },
@@ -1532,7 +1703,7 @@ export default function ForwardPage() {
                   </Button>
                 ))}
               </div>
-              <div className="flex items-center gap-1">
+              <div className="flex flex-wrap items-center gap-1">
                 {(
                   [
                     { key: 'default', label: '默认排序' },
@@ -1552,93 +1723,111 @@ export default function ForwardPage() {
               </div>
               <Input
                 size="sm"
-                className="w-56"
+                className="w-full sm:w-56"
                 placeholder="搜索名称 / 隧道 / IP / 端口"
                 isClearable
                 value={searchKeyword}
                 onValueChange={setSearchKeyword}
                 onClear={() => setSearchKeyword('')}
               />
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="flex-1 min-w-0">
-            {protocolForwardCount > 0 && (
-              <div className="text-xs text-default-500 flex items-center gap-2 flex-wrap">
-                <span>
-                  {showProtocolForwards
-                    ? `正在显示 ${protocolForwardCount} 条协议自动生成的转发`
-                    : `已隐藏 ${protocolForwardCount} 条协议自动生成的转发`}
-                  ,它们归「协议管理」「中转」页管
-                </span>
+              {hasActiveFilters && (
                 <Button
                   size="sm"
                   variant="light"
-                  className="h-6 min-w-0 px-2 text-xs"
-                  onPress={() => setShowProtocolForwards(!showProtocolForwards)}
+                  onPress={() => {
+                    setStatusFilter('all');
+                    setSearchKeyword('');
+                    setSortBy('default');
+                  }}
                 >
-                  {showProtocolForwards ? "收起" : "展开看看"}
+                  重置筛选
                 </Button>
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-3">
-            {/* 显示模式切换按钮 */}
-            <Button
-              size="sm"
-              variant="flat"
-              color="default"
-              onPress={handleViewModeChange}
-              isIconOnly
-              className="text-sm"
-              title={viewMode === 'grouped' ? '切换到直接显示' : '切换到分类显示'}
-            >
-              {viewMode === 'grouped' ? (
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                  <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2zM3 16a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z" clipRule="evenodd" />
-                </svg>
-              ) : (
-                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                  <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z" />
-                </svg>
               )}
-            </Button>
-            
-            {/* 导入按钮 */}
-            <Button
-              size="sm"
-              variant="flat"
-              color="warning"
-              onPress={handleImport}
-            >
-              导入
-            </Button>
-            
-            {/* 导出按钮 */}
-            <Button
-              size="sm"
-              variant="flat"
-              color="success"
-              onPress={handleExport}
-              isLoading={exportLoading}
-          
-            >
-              导出
-            </Button>
-
-            <Button
-              size="sm"
-              variant="flat"
-              color="primary"
-              onPress={handleAdd}
-             
-            >
-              新增
-            </Button>
-            
-        
+            </div>
           </div>
+
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+            <div className="flex-1 min-w-0">
+              {protocolForwardCount > 0 && (
+                <div className="text-xs text-default-500 flex items-center gap-2 flex-wrap">
+                  <span>
+                    {showProtocolForwards
+                      ? `正在显示 ${protocolForwardCount} 条协议自动生成的转发`
+                      : `已隐藏 ${protocolForwardCount} 条协议自动生成的转发`}
+                    ,它们归「协议管理」「中转」页管
+                  </span>
+                  <Button
+                    size="sm"
+                    variant="light"
+                    className="h-6 min-w-0 px-2 text-xs"
+                    onPress={() => setShowProtocolForwards(!showProtocolForwards)}
+                  >
+                    {showProtocolForwards ? "收起" : "展开看看"}
+                  </Button>
+                </div>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="flat"
+                isLoading={refreshing}
+                onPress={() => loadData(false)}
+              >
+                刷新
+              </Button>
+
+              {/* 显示模式切换按钮 */}
+              <Button
+                size="sm"
+                variant="flat"
+                color="default"
+                onPress={handleViewModeChange}
+                title={viewMode === 'grouped' ? '当前为按用户/隧道分组，点击切换到平铺' : '当前为平铺视图（仅显示当前账号），点击切换到按用户分组'}
+                startContent={
+                  viewMode === 'grouped' ? (
+                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2zM3 16a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1v-2z" clipRule="evenodd" />
+                    </svg>
+                  ) : (
+                    <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M3 4a1 1 0 011-1h12a1 1 0 011 1v2a1 1 0 01-1 1H4a1 1 0 01-1-1V4zM3 10a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H4a1 1 0 01-1-1v-6zM14 9a1 1 0 00-1 1v6a1 1 0 001 1h2a1 1 0 001-1v-6a1 1 0 00-1-1h-2z" />
+                    </svg>
+                  )
+                }
+              >
+                {viewMode === 'grouped' ? '平铺视图' : '分组视图'}
+              </Button>
+              {/* 导入按钮 */}
+              <Button
+                size="sm"
+                variant="flat"
+                color="warning"
+                onPress={handleImport}
+              >
+                导入
+              </Button>
+
+              {/* 导出按钮 */}
+              <Button
+                size="sm"
+                variant="flat"
+                color="success"
+                onPress={handleExport}
+                isLoading={exportLoading}
+              >
+                导出
+              </Button>
+
+              <Button
+                size="sm"
+                variant="flat"
+                color="primary"
+                onPress={handleAdd}
+              >
+                新增
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -1710,47 +1899,11 @@ export default function ForwardPage() {
               ))}
             </div>
           ) : (
-            /* 空状态 */
-            <Card className="shadow-sm border border-gray-200 dark:border-gray-700">
-              <CardBody className="text-center py-16">
-                <div className="flex flex-col items-center gap-4">
-                  <div className="w-16 h-16 bg-default-100 rounded-full flex items-center justify-center">
-                    <svg className="w-8 h-8 text-default-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-foreground">
-                      {statusFilter !== 'all' || searchKeyword.trim() ? '无匹配转发规则' : '暂无转发配置'}
-                    </h3>
-                    <p className="text-default-500 text-sm mt-1">
-                      {statusFilter !== 'all' || searchKeyword.trim()
-                        ? '当前筛选或搜索条件下没有匹配的转发规则'
-                        : '还没有创建任何转发配置，点击上方按钮开始创建'}
-                    </p>
-                    {(statusFilter !== 'all' || searchKeyword.trim()) && (
-                      <Button
-                        size="sm"
-                        color="primary"
-                        variant="flat"
-                        className="mt-3"
-                        onPress={() => {
-                          setStatusFilter('all');
-                          setSearchKeyword('');
-                          setSortBy('default');
-                        }}
-                      >
-                        重置筛选
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </CardBody>
-            </Card>
+            renderEmptyStateCard(false)
           )
         ) : (
           /* 直接显示模式 */
-          getSortedForwards().length > 0 ? (
+          sortedDirectForwards.length > 0 ? (
             <DndContext
               sensors={sensors}
               collisionDetection={closestCenter}
@@ -1758,11 +1911,11 @@ export default function ForwardPage() {
               onDragStart={() => {}} // 添加空的 onDragStart 处理器
             >
               <SortableContext
-                items={getSortedForwards().map(f => f.id || 0).filter(id => id > 0)}
+                items={sortedDirectForwards.map(f => f.id || 0).filter(id => id > 0)}
                 strategy={rectSortingStrategy}
               >
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-                  {getSortedForwards().map((forward) => (
+                  {sortedDirectForwards.map((forward) => (
                     forward && forward.id ? (
                       <SortableForwardCard key={forward.id} forward={forward} />
                     ) : null
@@ -1771,43 +1924,7 @@ export default function ForwardPage() {
               </SortableContext>
             </DndContext>
           ) : (
-            /* 空状态 */
-            <Card className="shadow-sm border border-gray-200 dark:border-gray-700">
-              <CardBody className="text-center py-16">
-                <div className="flex flex-col items-center gap-4">
-                  <div className="w-16 h-16 bg-default-100 rounded-full flex items-center justify-center">
-                    <svg className="w-8 h-8 text-default-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 9l4-4 4 4m0 6l-4 4-4-4" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold text-foreground">
-                      {statusFilter !== 'all' || searchKeyword.trim() ? '无匹配转发规则' : '暂无转发配置'}
-                    </h3>
-                    <p className="text-default-500 text-sm mt-1">
-                      {statusFilter !== 'all' || searchKeyword.trim()
-                        ? '当前筛选或搜索条件下没有匹配的转发规则'
-                        : '还没有创建任何转发配置，点击上方按钮开始创建'}
-                    </p>
-                    {(statusFilter !== 'all' || searchKeyword.trim()) && (
-                      <Button
-                        size="sm"
-                        color="primary"
-                        variant="flat"
-                        className="mt-3"
-                        onPress={() => {
-                          setStatusFilter('all');
-                          setSearchKeyword('');
-                          setSortBy('default');
-                        }}
-                      >
-                        重置筛选
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              </CardBody>
-            </Card>
+            renderEmptyStateCard(true)
           )
         )}
 
@@ -2092,25 +2209,36 @@ export default function ForwardPage() {
             <ModalHeader className="text-base">{addressModalTitle}</ModalHeader>
             <ModalBody className="pb-6">
               <div className="mb-4 text-right">
-                <Button size="sm" onClick={copyAllAddresses}>
-                  复制
+                <Button
+                  size="sm"
+                  color={copiedKey === 'modal-all' ? 'success' : 'primary'}
+                  variant="flat"
+                  isLoading={copyingAll}
+                  onPress={copyAllAddresses}
+                >
+                  {copiedKey === 'modal-all' ? '✓ 已复制全部' : `复制全部 (${addressList.length})`}
                 </Button>
               </div>
               
               <div className="space-y-2 max-h-60 overflow-y-auto">
-                {addressList.map((item) => (
-                  <div key={item.id} className="tms-subpanel-card flex justify-between items-center p-3 border border-default-200 dark:border-default-100 rounded-lg">
-                    <code className="text-sm flex-1 mr-3 text-foreground">{item.address}</code>
+                {addressList.map((item) => {
+                  const rowKey = `modal-${item.id}`;
+                  return (
+                  <div key={item.id} className="tms-subpanel-card flex justify-between items-center gap-3 p-3 border border-default-200 dark:border-default-100 rounded-lg">
+                    <code className="text-sm font-mono flex-1 min-w-0 break-all text-foreground">{item.address}</code>
                     <Button
                       size="sm"
+                      color={copiedKey === rowKey ? 'success' : 'default'}
                       variant="light"
+                      className="shrink-0"
                       isLoading={item.copying}
-                      onClick={() => copyAddress(item)}
+                      onPress={() => copyAddress(item)}
                     >
-                      复制
+                      {copiedKey === rowKey ? '✓ 已复制' : '复制'}
                     </Button>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </ModalBody>
           </ModalContent>
@@ -2177,9 +2305,9 @@ export default function ForwardPage() {
                     >
                       重新生成
                     </Button>
-                    <Button 
-                      color="secondary" 
-                      size="sm" 
+                    <Button
+                      color={copiedKey === 'export' ? 'success' : 'secondary'}
+                      size="sm"
                       onPress={copyExportData}
                       startContent={
                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
@@ -2188,7 +2316,7 @@ export default function ForwardPage() {
                         </svg>
                       }
                     >
-                      复制
+                      {copiedKey === 'export' ? '✓ 已复制' : '复制'}
                     </Button>
                   </div>
                 )}
@@ -2448,22 +2576,22 @@ export default function ForwardPage() {
                             <CardBody className="pt-0">
                               {result.success ? (
                                 <div className="space-y-3">
-                                  <div className="grid grid-cols-3 gap-4">
-                                    <div className="text-center">
-                                      <div className="text-2xl font-bold text-primary">{result.averageTime?.toFixed(0)}</div>
-                                      <div className="text-small text-default-500">平均延迟(ms)</div>
+                                  <div className="grid grid-cols-3 gap-2 sm:gap-4">
+                                    <div className="text-center min-w-0">
+                                      <div className="text-xl sm:text-2xl font-bold text-primary">{result.averageTime?.toFixed(0)}</div>
+                                      <div className="text-xs sm:text-small text-default-500">平均延迟(ms)</div>
                                     </div>
-                                    <div className="text-center">
-                                      <div className="text-2xl font-bold text-warning">{result.packetLoss?.toFixed(1)}</div>
-                                      <div className="text-small text-default-500">丢包率(%)</div>
+                                    <div className="text-center min-w-0">
+                                      <div className="text-xl sm:text-2xl font-bold text-warning">{result.packetLoss?.toFixed(1)}</div>
+                                      <div className="text-xs sm:text-small text-default-500">丢包率(%)</div>
                                     </div>
-                                    <div className="text-center">
+                                    <div className="text-center min-w-0">
                                       {quality && (
                                         <>
-                                          <Chip color={quality.color as any} variant="flat" size="lg">
+                                          <Chip color={quality.color as any} variant="flat" size="sm">
                                             {quality.text}
                                           </Chip>
-                                          <div className="text-small text-default-500 mt-1">连接质量</div>
+                                          <div className="text-xs sm:text-small text-default-500 mt-1">连接质量</div>
                                         </>
                                       )}
                                     </div>
