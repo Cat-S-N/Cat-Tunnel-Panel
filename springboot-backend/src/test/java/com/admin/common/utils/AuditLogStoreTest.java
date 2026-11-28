@@ -145,4 +145,103 @@ class AuditLogStoreTest {
         assertEquals(2L, mixedFailed.get("failedCount"));
         verify(jdbc).queryForList(contains("AND `result_code` <> 0"), eq(20), eq(0));
     }
+
+    @Test
+    void maskSensitiveParams_redactsEscapedQuotesAndAllPasswordFields() {
+        String raw = "{\"newUsername\":\"alice\",\"currentPassword\":\"old\\\"Secret!99\",\"newPassword\":\"new\\\"Pass#88\",\"confirmPassword\":\"new\\\"Pass#88\",\"oldPassword\":\"legacy1\",\"passwd\":\"legacy2\"}";
+        String masked = AuditLogStore.maskSensitiveParams(raw);
+        assertFalse(masked.contains("Secret!99"), masked);
+        assertFalse(masked.contains("Pass#88"), masked);
+        assertFalse(masked.contains("legacy1"), masked);
+        assertFalse(masked.contains("legacy2"), masked);
+        assertTrue(masked.contains("\"newUsername\":\"alice\""), masked);
+        assertTrue(masked.contains("\"currentPassword\":\"***\""), masked);
+        assertTrue(masked.contains("\"newPassword\":\"***\""), masked);
+        assertTrue(masked.contains("\"confirmPassword\":\"***\""), masked);
+    }
+
+    @Test
+    void writePasswordChangeRow_persistsSanitizedSummaryAndResolvesRoles() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        AuditLogStore store = new AuditLogStore();
+        ReflectionTestUtils.setField(store, "jdbc", jdbc);
+        ReflectionTestUtils.setField(store, "available", true);
+
+        long now = 1700001234567L;
+        String safeSummary = "{\"oldUsername\":\"admin_user\",\"newUsername\":\"cat_admin\",\"usernameChanged\":true}";
+        store.writePasswordChangeRow(1L, "cat_admin", "超级管理员", "198.51.100.8", safeSummary, now);
+
+        verify(jdbc).update(
+                contains("INSERT INTO `audit_log`"),
+                eq(1L),
+                eq("cat_admin"),
+                eq("超级管理员"),
+                eq("修改密码"),
+                eq("UserController.updatePassword"),
+                eq("198.51.100.8"),
+                eq(safeSummary),
+                eq(0),
+                eq(now)
+        );
+
+        // 普通用户与节点管理员角色解析验证
+        when(jdbc.queryForList(contains("SELECT `managed_nodes`"), eq(String.class), eq(9L)))
+                .thenReturn(Collections.singletonList("1,2"));
+        store.writePasswordChangeRow(9L, "node_mgr", "普通/节点管理员", "198.51.100.9",
+                "{\"oldUsername\":\"node_mgr\",\"newUsername\":\"node_mgr\",\"usernameChanged\":false}", now);
+        verify(jdbc).update(
+                contains("INSERT INTO `audit_log`"),
+                eq(9L),
+                eq("node_mgr"),
+                eq("节点管理员"),
+                eq("修改密码"),
+                eq("UserController.updatePassword"),
+                eq("198.51.100.9"),
+                eq("{\"oldUsername\":\"node_mgr\",\"newUsername\":\"node_mgr\",\"usernameChanged\":false}"),
+                eq(0),
+                eq(now)
+        );
+    }
+
+    @Test
+    void recordIfAuditable_skipsDuplicateSuccessUpdatePasswordButKeepsFailedAttempt() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        AuditLogStore store = new AuditLogStore();
+        ReflectionTestUtils.setField(store, "jdbc", jdbc);
+        ReflectionTestUtils.setField(store, "available", true);
+        // 同步执行线程池任务以便断言
+        ReflectionTestUtils.setField(store, "executor", new java.util.concurrent.AbstractExecutorService() {
+            @Override public void shutdown() {}
+            @Override public java.util.List<Runnable> shutdownNow() { return Collections.emptyList(); }
+            @Override public boolean isShutdown() { return false; }
+            @Override public boolean isTerminated() { return false; }
+            @Override public boolean awaitTermination(long timeout, java.util.concurrent.TimeUnit unit) { return true; }
+            @Override public void execute(Runnable command) { command.run(); }
+        });
+
+        // 成功改密由 UserServiceImpl.updatePassword 记录，AOP 层不应重复插入
+        store.recordIfAuditable(null, "203.0.113.5",
+                "com.admin.controller.UserController.updatePassword",
+                "{\"newUsername\":\"alice\",\"newPassword\":\"PlainLeak123\"}",
+                com.admin.common.lang.R.ok("账号密码修改成功"));
+        org.mockito.Mockito.verifyNoInteractions(jdbc);
+
+        // 改密失败时仍记录脱敏后的失败审计日志，且严禁泄露明文密码
+        store.recordIfAuditable(null, "203.0.113.5",
+                "com.admin.controller.UserController.updatePassword",
+                "{\"newUsername\":\"alice\",\"currentPassword\":\"Wrong\\\"Secret99\",\"newPassword\":\"PlainLeak123\"}",
+                com.admin.common.lang.R.err("当前密码错误"));
+        verify(jdbc).update(
+                contains("INSERT INTO `audit_log`"),
+                eq(null),
+                eq("匿名"),
+                eq("-"),
+                eq("修改密码"),
+                eq("UserController.updatePassword"),
+                eq("203.0.113.5"),
+                eq("{\"newUsername\":\"alice\",\"currentPassword\":\"***\",\"newPassword\":\"***\"}"),
+                org.mockito.ArgumentMatchers.intThat(code -> code != 0),
+                org.mockito.ArgumentMatchers.anyLong()
+        );
+    }
 }

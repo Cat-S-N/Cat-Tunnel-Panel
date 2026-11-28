@@ -149,13 +149,30 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     /**
      * 用户登录
-     * 验证验证码、用户名密码，检查账户状态，生成JWT令牌
+     * 验证防爆破限流、验证码、用户名密码，检查账户状态，生成JWT令牌
      * 
      * @param loginDto 登录数据传输对象
      * @return 登录结果响应，包含令牌和用户信息
      */
     @Override
     public R login(LoginDto loginDto) {
+        if (loginDto == null) {
+            return R.err(ERROR_LOGIN_CREDENTIALS);
+        }
+        String username = com.admin.common.utils.RegisterConfigRule.trimUnicodeBlank(loginDto.getUsername());
+        String password = loginDto.getPassword();
+        if (username.isEmpty() || StringUtils.isBlank(password)) {
+            return R.err(ERROR_LOGIN_CREDENTIALS);
+        }
+
+        // 0. 登录防暴力破解限流检查（按 IP + 规范化用户名统计连续失败窗口）
+        String clientIp = resolveClientIp();
+        long nowMs = System.currentTimeMillis();
+        long lockRemainMs = getLoginLockRemainingMs(clientIp, username, nowMs);
+        if (lockRemainMs > 0L) {
+            long remainMinutes = Math.max(1L, (lockRemainMs + 59_999L) / 60_000L);
+            return R.err("登录失败次数过多，请 " + remainMinutes + " 分钟后再试");
+        }
 
         // 1. 验证验证码
         ViteConfig viteConfig = viteConfigService.getOne(new QueryWrapper<ViteConfig>().eq("name", "captcha_enabled"));
@@ -165,20 +182,22 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             if (!valid)  return R.err("验证码校验失败");
         }
 
-
-
-        // 2. 验证用户凭据
-        LoginValidationResult validationResult = validateUserCredentials(loginDto);
+        // 2. 验证用户凭据与账号状态
+        LoginValidationResult validationResult = validateUserCredentials(username, password);
         if (validationResult.isHasError()) {
+            recordLoginFailure(clientIp, username, nowMs);
             return R.err(validationResult.getErrorMessage());
         }
 
-        // 3. 生成令牌并返回用户信息
+        // 3. 登录成功，自动清除该 IP + 用户名的失败记录
+        clearLoginFailures(clientIp, username);
+
+        // 4. 生成令牌并返回用户信息
         User user = validationResult.getUser();
         String token = JwtUtil.generateToken(user);
         
-        // 4. 检查是否使用默认账号密码
-        boolean requirePasswordChange = isDefaultCredentials(loginDto.getUsername(), loginDto.getPassword());
+        // 5. 检查是否使用默认账号密码
+        boolean requirePasswordChange = isDefaultCredentials(username, password);
         
         return R.ok(MapUtil.builder()
                 .put(LOGIN_TOKEN_FIELD, token)
@@ -186,6 +205,124 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 .put(LOGIN_ROLE_ID_FIELD, user.getRoleId())
                 .put(LOGIN_REQUIRE_PASSWORD_CHANGE_FIELD, requirePasswordChange)
                 .build());
+    }
+
+    static final long LOGIN_FAIL_WINDOW_MS = 15 * 60 * 1000L;
+    static final int LOGIN_FAIL_MAX_ATTEMPTS = 10;
+    static final int LOGIN_FAIL_MAX_ENTRIES = 4096;
+    private static final int LOGIN_FAIL_CLEANUP_BATCH = 64;
+    private final Object loginRateLock = new Object();
+    private final java.util.LinkedHashMap<String, java.util.Deque<Long>> loginFailuresByKey =
+            new java.util.LinkedHashMap<>(16, 0.75f, true);
+    private int loginRateOpCount = 0;
+
+    static String buildLoginRateKey(String ip, String username) {
+        String cleanIp = extractFirstValidIp(ip);
+        if (cleanIp.isEmpty()) {
+            cleanIp = "unknown";
+        }
+        String cleanUser = com.admin.common.utils.RegisterConfigRule.trimUnicodeBlank(username)
+                .toLowerCase(java.util.Locale.ROOT);
+        if (cleanUser.length() > 64) {
+            cleanUser = cleanUser.substring(0, 64);
+        }
+        return cleanIp + "|" + cleanUser;
+    }
+
+    long getLoginLockRemainingMs(String ip, String username, long nowMs) {
+        String key = buildLoginRateKey(ip, username);
+        synchronized (loginRateLock) {
+            loginRateOpCount++;
+            if (loginRateOpCount >= LOGIN_FAIL_CLEANUP_BATCH) {
+                loginRateOpCount = 0;
+                evictExpiredLoginFailuresLocked(nowMs);
+            }
+            java.util.Deque<Long> deque = loginFailuresByKey.get(key);
+            if (deque == null) {
+                return 0L;
+            }
+            pruneExpiredWindowTimestamps(deque, nowMs, LOGIN_FAIL_WINDOW_MS);
+            if (deque.isEmpty()) {
+                loginFailuresByKey.remove(key);
+                return 0L;
+            }
+            if (deque.size() < LOGIN_FAIL_MAX_ATTEMPTS) {
+                return 0L;
+            }
+            Long oldest = deque.peekFirst();
+            if (oldest == null) {
+                return 0L;
+            }
+            long remain = LOGIN_FAIL_WINDOW_MS - (nowMs - oldest);
+            return Math.max(0L, remain);
+        }
+    }
+
+    void recordLoginFailure(String ip, String username, long nowMs) {
+        recordLoginFailure(ip, username, nowMs, LOGIN_FAIL_MAX_ENTRIES);
+    }
+
+    void recordLoginFailure(String ip, String username, long nowMs, int maxEntries) {
+        String key = buildLoginRateKey(ip, username);
+        int safeCap = Math.max(1, maxEntries);
+        synchronized (loginRateLock) {
+            loginRateOpCount++;
+            if (loginRateOpCount >= LOGIN_FAIL_CLEANUP_BATCH || loginFailuresByKey.size() >= safeCap) {
+                loginRateOpCount = 0;
+                evictExpiredLoginFailuresLocked(nowMs);
+            }
+            java.util.Deque<Long> deque = loginFailuresByKey.get(key);
+            if (deque != null) {
+                pruneExpiredWindowTimestamps(deque, nowMs, LOGIN_FAIL_WINDOW_MS);
+            } else {
+                while (loginFailuresByKey.size() >= safeCap && !loginFailuresByKey.isEmpty()) {
+                    java.util.Iterator<java.util.Map.Entry<String, java.util.Deque<Long>>> it =
+                            loginFailuresByKey.entrySet().iterator();
+                    if (it.hasNext()) {
+                        it.next();
+                        it.remove();
+                    }
+                }
+                deque = new java.util.ArrayDeque<>(LOGIN_FAIL_MAX_ATTEMPTS);
+                loginFailuresByKey.put(key, deque);
+            }
+            while (deque.size() >= LOGIN_FAIL_MAX_ATTEMPTS) {
+                deque.pollFirst();
+            }
+            deque.addLast(nowMs);
+        }
+    }
+
+    void clearLoginFailures(String ip, String username) {
+        String key = buildLoginRateKey(ip, username);
+        synchronized (loginRateLock) {
+            loginFailuresByKey.remove(key);
+        }
+    }
+
+    private void evictExpiredLoginFailuresLocked(long nowMs) {
+        java.util.Iterator<java.util.Map.Entry<String, java.util.Deque<Long>>> it =
+                loginFailuresByKey.entrySet().iterator();
+        while (it.hasNext()) {
+            java.util.Deque<Long> q = it.next().getValue();
+            pruneExpiredWindowTimestamps(q, nowMs, LOGIN_FAIL_WINDOW_MS);
+            if (q.isEmpty()) {
+                it.remove();
+            }
+        }
+    }
+
+    int getLoginFailTrackedCount() {
+        synchronized (loginRateLock) {
+            return loginFailuresByKey.size();
+        }
+    }
+
+    void clearLoginRateLimitForTest() {
+        synchronized (loginRateLock) {
+            loginFailuresByKey.clear();
+            loginRateOpCount = 0;
+        }
     }
 
     static final long REGISTER_RATE_WINDOW_MS = 10 * 60 * 1000L;
@@ -406,7 +543,11 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     }
 
     private static void pruneExpiredTimestamps(java.util.Deque<Long> deque, long nowMs) {
-        while (!deque.isEmpty() && nowMs - deque.peekFirst() > REGISTER_RATE_WINDOW_MS) {
+        pruneExpiredWindowTimestamps(deque, nowMs, REGISTER_RATE_WINDOW_MS);
+    }
+
+    private static void pruneExpiredWindowTimestamps(java.util.Deque<Long> deque, long nowMs, long windowMs) {
+        while (!deque.isEmpty() && nowMs - deque.peekFirst() > windowMs) {
             deque.pollFirst();
         }
     }
@@ -576,54 +717,129 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
 
     /**
      * 修改账号密码
-     * 验证当前密码、新密码确认、用户名唯一性、更新用户账号密码
+     * 验证参数合法性、账号状态、当前密码、新旧密码差异与用户名唯一性，更新后记录脱敏审计日志
      * 
      * @param changePasswordDto 修改账号密码数据传输对象
      * @return 修改结果响应
      */
     @Override
     public R updatePassword(ChangePasswordDto changePasswordDto) {
+        if (changePasswordDto == null) {
+            return R.err("请求参数不能为空");
+        }
         try {
-            // 1. 获取当前用户信息
+            // 1. 统一校验新用户名合法性（拒绝空白、控制字符、过短或超长）
+            String newUsername = com.admin.common.utils.RegisterConfigRule.trimUnicodeBlank(
+                    changePasswordDto.getNewUsername());
+            if (newUsername.isEmpty()) {
+                return R.err("新用户名不能为空");
+            }
+            if (newUsername.length() < 3 || newUsername.length() > 32) {
+                return R.err("用户名长度需在3-32位之间");
+            }
+            if (containsIllegalUsernameChar(newUsername)) {
+                return R.err("用户名不能包含空格或控制字符");
+            }
+
+            // 2. 统一校验当前密码、新密码长度与纯空白、确认密码匹配
+            String currentPassword = changePasswordDto.getCurrentPassword();
+            if (currentPassword == null
+                    || com.admin.common.utils.RegisterConfigRule.trimUnicodeBlank(currentPassword).isEmpty()) {
+                return R.err("当前密码不能为空");
+            }
+
+            String newPassword = changePasswordDto.getNewPassword();
+            if (newPassword == null
+                    || com.admin.common.utils.RegisterConfigRule.trimUnicodeBlank(newPassword).isEmpty()
+                    || newPassword.length() < 6
+                    || newPassword.length() > 64) {
+                return R.err("密码长度需在6-64位之间");
+            }
+
+            if (!Objects.equals(newPassword, changePasswordDto.getConfirmPassword())) {
+                return R.err(ERROR_PASSWORD_NOT_MATCH);
+            }
+
+            // 3. 获取当前用户信息并校验账号启用状态（防止被停用账号持旧令牌绕过改密）
             CurrentUserInfo currentUser = getCurrentUserInfo();
             if (currentUser.isHasError()) {
                 return R.err(currentUser.getErrorMessage());
             }
-
-            // 2. 验证新密码和确认密码是否匹配
-            if (!changePasswordDto.getNewPassword().equals(changePasswordDto.getConfirmPassword())) {
-                return R.err(ERROR_PASSWORD_NOT_MATCH);
+            User user = currentUser.getUser();
+            if (com.admin.common.utils.AccountLimits.disabled(user.getStatus())) {
+                return R.err("账户已停用，无法修改账号密码");
             }
 
-            // 3. 验证当前密码是否正确
-            User user = currentUser.getUser();
-            String currentPasswordMd5 = Md5Util.md5(changePasswordDto.getCurrentPassword());
-            if (!user.getPwd().equals(currentPasswordMd5)) {
+            // 4. 验证当前密码是否正确
+            String currentPasswordMd5 = Md5Util.md5(currentPassword);
+            if (!Objects.equals(user.getPwd(), currentPasswordMd5)) {
                 return R.err(ERROR_CURRENT_PASSWORD_WRONG);
             }
 
-            // 4. 验证新用户名唯一性（如果与当前用户名不同）
-            if (!user.getUser().equals(changePasswordDto.getNewUsername())) {
-                R usernameValidationResult = validateUsernameUniqueness(changePasswordDto.getNewUsername(), user.getId());
+            // 5. 拒绝新旧密码相同
+            String newPasswordMd5 = Md5Util.md5(newPassword);
+            if (Objects.equals(currentPassword, newPassword) || Objects.equals(user.getPwd(), newPasswordMd5)) {
+                return R.err("新密码不能与当前密码相同");
+            }
+
+            // 6. 验证新用户名唯一性（如果与当前用户名不同）
+            String oldUsername = user.getUser();
+            if (!Objects.equals(oldUsername, newUsername)) {
+                R usernameValidationResult = validateUsernameUniqueness(newUsername, user.getId());
                 if (usernameValidationResult.getCode() != 0) {
                     return usernameValidationResult;
                 }
             }
 
-            // 5. 更新用户名和密码
+            // 7. 更新用户名和密码
             User updateUser = new User();
             updateUser.setId(user.getId());
-            updateUser.setUser(changePasswordDto.getNewUsername());
-            updateUser.setPwd(Md5Util.md5(changePasswordDto.getNewPassword()));
+            updateUser.setUser(newUsername);
+            updateUser.setPwd(newPasswordMd5);
             updateUser.setUpdatedTime(System.currentTimeMillis());
-            
-            boolean result = this.updateById(updateUser);
-            return result ? R.ok("账号密码修改成功") : R.err(ERROR_UPDATE_FAILED);
-            
+
+            boolean result;
+            try {
+                result = this.updateById(updateUser);
+            } catch (org.springframework.dao.DuplicateKeyException e) {
+                return R.err(ERROR_USERNAME_TAKEN);
+            }
+            if (!result) {
+                return R.err(ERROR_UPDATE_FAILED);
+            }
+
+            // 8. 记录修改密码成功审计事件（严禁传入任何明文密码或哈希）
+            if (auditLogStore != null) {
+                try {
+                    auditLogStore.recordPasswordChange(
+                            user.getId(), oldUsername, newUsername, user.getRoleId(), resolveClientIp());
+                } catch (Exception e) {
+                    log.debug("记录修改密码审计日志异常: {}", e.getMessage());
+                }
+            }
+            return R.ok("账号密码修改成功");
+
         } catch (Exception e) {
-            e.printStackTrace();
-            return R.err("修改账号密码时发生错误：" + e.getMessage());
+            log.error("修改账号密码异常", com.admin.common.aop.LogRedact.safe(e));
+            return R.err("修改账号密码时发生错误");
         }
+    }
+
+    private static boolean containsIllegalUsernameChar(String s) {
+        for (int i = 0; i < s.length(); i++) {
+            char ch = s.charAt(i);
+            if (ch <= 0x20
+                    || ch == 0x7F
+                    || Character.isWhitespace(ch)
+                    || Character.isSpaceChar(ch)
+                    || ch == '\u200B'
+                    || ch == '\u200C'
+                    || ch == '\u200D'
+                    || ch == '\uFEFF') {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -670,20 +886,21 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     /**
      * 验证用户登录凭据
      * 
-     * @param loginDto 登录数据传输对象
+     * @param username 规范化后的用户名
+     * @param password 登录密码
      * @return 登录验证结果
      */
-    private LoginValidationResult validateUserCredentials(LoginDto loginDto) {
-        User user = this.getOne(new QueryWrapper<User>().eq("user", loginDto.getUsername()));
+    private LoginValidationResult validateUserCredentials(String username, String password) {
+        User user = this.getOne(new QueryWrapper<User>().eq("user", username));
         if (user == null) {
             return LoginValidationResult.error(ERROR_LOGIN_CREDENTIALS);
         }
         
-        if (!user.getPwd().equals(Md5Util.md5(loginDto.getPassword()))) {
+        if (!Objects.equals(user.getPwd(), Md5Util.md5(password))) {
             return LoginValidationResult.error(ERROR_LOGIN_CREDENTIALS);
         }
         
-        if (user.getStatus() == USER_STATUS_DISABLED) {
+        if (com.admin.common.utils.AccountLimits.disabled(user.getStatus())) {
             return LoginValidationResult.error(ERROR_ACCOUNT_DISABLED);
         }
         
@@ -950,12 +1167,21 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
      * 
      * @return 当前用户信息结果
      */
-    private CurrentUserInfo getCurrentUserInfo() {
-        Integer userId = JwtUtil.getUserIdFromToken();
-        Integer roleId = JwtUtil.getRoleIdFromToken();
-        
+    CurrentUserInfo getCurrentUserInfo() {
+        Integer userId;
+        try {
+            userId = JwtUtil.getUserIdFromToken();
+        } catch (Exception e) {
+            return CurrentUserInfo.error(ERROR_USER_NOT_LOGGED_IN);
+        }
         if (userId == null) {
             return CurrentUserInfo.error(ERROR_USER_NOT_LOGGED_IN);
+        }
+
+        Integer roleId = null;
+        try {
+            roleId = JwtUtil.getRoleIdFromToken();
+        } catch (Exception ignored) {
         }
         
         User user = this.getById(userId);
@@ -963,7 +1189,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             return CurrentUserInfo.error(ERROR_USER_NOT_FOUND);
         }
         
-        return CurrentUserInfo.success(user, roleId);
+        return CurrentUserInfo.success(user, roleId != null ? roleId : user.getRoleId());
     }
 
     /**

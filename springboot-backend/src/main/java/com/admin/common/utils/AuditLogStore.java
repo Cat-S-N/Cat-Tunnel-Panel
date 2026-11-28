@@ -34,7 +34,7 @@ public class AuditLogStore {
     private static final long RETRY_INTERVAL_MS = 30_000L;
 
     private static final Pattern EXTRA_SECRET_PATTERN = Pattern.compile(
-            "(?i)\"(tg_bot_token|webhook_url|token|secret|pwd|password|newPassword|currentPassword|confirmPassword|inviteCode|invite_code|register_invite_code)\"\\s*:\\s*\"[^\"]*\"");
+            "(?i)\"(tg_bot_token|webhook_url|token|secret|pwd|passwd|password|oldPassword|newPassword|currentPassword|confirmPassword|inviteCode|invite_code|register_invite_code)\"\\s*:\\s*\"(?:[^\"\\\\]++|\\\\.)*+\"");
 
     private static final Pattern LOGIN_USER_PATTERN = Pattern.compile(
             "(?i)\"(?:username|user)\"\\s*:\\s*\"([^\"\\\\]{1,64})\"");
@@ -240,6 +240,10 @@ public class AuditLogStore {
         }
 
         String shortMethod = extractShortMethod(controllerMethod);
+        if (resultCode == 0 && "UserController.updatePassword".equals(shortMethod)) {
+            // 修改密码成功事件已由 UserServiceImpl.updatePassword 独立记录（仅含新旧用户名，零密码接触），避免重复落库
+            return;
+        }
         if ("匿名".equals(username) && "UserController.login".equals(shortMethod)) {
             String loginUser = extractLoginUsername(requestParams);
             if (loginUser != null && !loginUser.isEmpty()) {
@@ -323,6 +327,63 @@ public class AuditLogStore {
                 available = false;
             }
             log.debug("写入注册审计日志失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 记录用户修改账号密码成功的操作审计日志（仅记录用户ID、新旧用户名、角色与来源IP，严禁接收或记录任何明文密码或密码哈希）
+     */
+    public void recordPasswordChange(Long userId, String oldUsername, String newUsername, Integer roleId, String ip) {
+        if (jdbc == null) {
+            return;
+        }
+        String cleanOld = SubAccessStore.safeTruncate(
+                oldUsername == null || oldUsername.trim().isEmpty() ? "匿名" : oldUsername.trim(), 64);
+        String cleanNew = SubAccessStore.safeTruncate(
+                newUsername == null || newUsername.trim().isEmpty() ? cleanOld : newUsername.trim(), 64);
+        String cleanIp = SubAccessStore.firstHeaderIp(ip);
+        if (cleanIp.isEmpty()) {
+            cleanIp = SubAccessStore.safeTruncate(ip == null || ip.trim().isEmpty() ? "unknown" : ip, 64);
+        }
+        boolean usernameChanged = !java.util.Objects.equals(cleanOld, cleanNew);
+        String escapedOld = cleanOld.replace("\\", "\\\\").replace("\"", "\\\"");
+        String escapedNew = cleanNew.replace("\\", "\\\\").replace("\"", "\\\"");
+        String safeParams = "{\"oldUsername\":\"" + escapedOld
+                + "\",\"newUsername\":\"" + escapedNew
+                + "\",\"usernameChanged\":" + usernameChanged + "}";
+        String baseRole = Integer.valueOf(0).equals(roleId) ? "超级管理员" : "普通/节点管理员";
+        long now = System.currentTimeMillis();
+        final String finalIp = SubAccessStore.safeTruncate(cleanIp, 64);
+
+        executor.execute(() -> writePasswordChangeRow(userId, cleanNew, baseRole, finalIp, safeParams, now));
+    }
+
+    void writePasswordChangeRow(Long userId, String cleanUser, String baseRole, String finalIp, String safeParams, long now) {
+        if (!ensureTable()) {
+            return;
+        }
+        try {
+            String actualRole = baseRole;
+            if ("普通/节点管理员".equals(baseRole) && userId != null) {
+                List<String> mns = jdbc.queryForList(
+                        "SELECT `managed_nodes` FROM `user` WHERE `id` = ? LIMIT 1", String.class, userId);
+                if (!mns.isEmpty() && mns.get(0) != null && !mns.get(0).trim().isEmpty()) {
+                    actualRole = "节点管理员";
+                } else {
+                    actualRole = "用户";
+                }
+            }
+            jdbc.update(
+                    "INSERT INTO `audit_log` (`user_id`, `username`, `role_label`, `action`, `method`, `ip`, `params`, `result_code`, `created_time`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    userId, cleanUser, actualRole, "修改密码", "UserController.updatePassword", finalIp, maskSensitiveParams(safeParams), 0, now);
+            if (insertCounter.incrementAndGet() % 300 == 0) {
+                jdbc.update("DELETE FROM `audit_log` WHERE `created_time` < ?", now - RETENTION_MS);
+            }
+        } catch (Exception e) {
+            if (e.getMessage() != null && e.getMessage().contains("doesn't exist")) {
+                available = false;
+            }
+            log.debug("写入修改密码审计日志失败: {}", e.getMessage());
         }
     }
 

@@ -359,24 +359,29 @@ export default function AdminLayout({
 
   // 密码表单验证
   const validatePasswordForm = (): boolean => {
-    if (!passwordForm.newUsername.trim()) {
+    const trimmedUser = passwordForm.newUsername.trim();
+    if (!trimmedUser) {
       toast.error('请输入新用户名');
       return false;
     }
-    if (passwordForm.newUsername.length < 3) {
-      toast.error('用户名长度至少3位');
+    if (trimmedUser.length < 3 || trimmedUser.length > 32) {
+      toast.error('用户名长度需在3-32位之间');
       return false;
     }
-    if (!passwordForm.currentPassword) {
+    if (!passwordForm.currentPassword || !passwordForm.currentPassword.trim()) {
       toast.error('请输入当前密码');
       return false;
     }
-    if (!passwordForm.newPassword) {
+    if (!passwordForm.newPassword || !passwordForm.newPassword.trim()) {
       toast.error('请输入新密码');
       return false;
     }
-    if (passwordForm.newPassword.length < 6) {
-      toast.error('新密码长度不能少于6位');
+    if (passwordForm.newPassword.length < 6 || passwordForm.newPassword.length > 64) {
+      toast.error('新密码长度需在6-64位之间');
+      return false;
+    }
+    if (passwordForm.newPassword === passwordForm.currentPassword) {
+      toast.error('新密码不能与当前密码相同');
       return false;
     }
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
@@ -388,11 +393,15 @@ export default function AdminLayout({
 
   // 提交密码修改
   const handlePasswordSubmit = async () => {
+    if (passwordLoading) return;
     if (!validatePasswordForm()) return;
 
     setPasswordLoading(true);
     try {
-      const response = await updatePassword(passwordForm);
+      const response = await updatePassword({
+        ...passwordForm,
+        newUsername: passwordForm.newUsername.trim(),
+      });
       if (response.code === 0) {
         toast.success('密码修改成功，请重新登录');
         onOpenChange();

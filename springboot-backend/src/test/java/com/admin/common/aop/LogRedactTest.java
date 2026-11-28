@@ -202,4 +202,15 @@ class LogRedactTest {
         assertArrayEquals(ex.getStackTrace(), s.getStackTrace());
         assertNull(s.getCause());
     }
+
+    @Test
+    void changePasswordAllFieldsRedacted() {
+        String in = "{\"newUsername\":\"cat_admin\",\"currentPassword\":\"oldVal\\\"Pass!1\",\"newPassword\":\"newVal\\\"Pass!2\",\"confirmPassword\":\"newVal\\\"Pass!2\"}";
+        String out = LogRedact.redact(in);
+        assertEquals("{\"newUsername\":\"cat_admin\",\"currentPassword\":\"***\",\"newPassword\":\"***\",\"confirmPassword\":\"***\"}", out);
+        assertFalse(out.contains("oldVal"), out);
+        assertFalse(out.contains("newVal"), out);
+        assertFalse(out.contains("Pass!1"), out);
+        assertFalse(out.contains("Pass!2"), out);
+    }
 }
