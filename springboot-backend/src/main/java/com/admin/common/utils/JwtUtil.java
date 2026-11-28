@@ -122,47 +122,91 @@ public class JwtUtil {
      * 从JWT Token中获取用户ID
      *
      * @param token JWT Token
-     * @return 用户ID
+     * @return 用户ID，解析失败返回 null
      */
     public static Long getUserIdFromToken(String token) {
-        String[] parts = token.split("\\.");
-        String encodedPayload = parts[1];
-        String decodedPayload = new String(Base64.getUrlDecoder().decode(encodedPayload), StandardCharsets.UTF_8);
-        Map<String, Object> payload = JSON.parseObject(decodedPayload, Map.class);
-        return Long.parseLong(payload.get("sub").toString());
+        if (token == null || token.isEmpty()) {
+            return null;
+        }
+        try {
+            String[] parts = token.split("\\.");
+            if (parts.length < 2) {
+                return null;
+            }
+            String encodedPayload = parts[1];
+            String decodedPayload = new String(Base64.getUrlDecoder().decode(encodedPayload), StandardCharsets.UTF_8);
+            Map<String, Object> payload = JSON.parseObject(decodedPayload, Map.class);
+            if (payload == null || payload.get("sub") == null) {
+                return null;
+            }
+            return Long.parseLong(payload.get("sub").toString());
+        } catch (Exception e) {
+            return null;
+        }
     }
 
 
     public static Integer getUserIdFromToken() {
-        String token = HttpContextUtils.getHttpServletRequest().getHeader("Authorization");
-        String[] parts = token.split("\\.");
-        String encodedPayload = parts[1];
-        String decodedPayload = new String(Base64.getUrlDecoder().decode(encodedPayload), StandardCharsets.UTF_8);
-        Map<String, Object> payload = JSON.parseObject(decodedPayload, Map.class);
-        return Integer.parseInt(payload.get("sub").toString());
+        try {
+            javax.servlet.http.HttpServletRequest request = HttpContextUtils.getHttpServletRequest();
+            if (request == null) {
+                return null;
+            }
+            Long uid = getUserIdFromToken(request.getHeader("Authorization"));
+            return uid == null ? null : uid.intValue();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public static String getNameFromToken() {
-        String token = HttpContextUtils.getHttpServletRequest().getHeader("Authorization");
-        String[] parts = token.split("\\.");
-        String encodedPayload = parts[1];
-        String decodedPayload = new String(Base64.getUrlDecoder().decode(encodedPayload), StandardCharsets.UTF_8);
-        Map<String, Object> payload = JSON.parseObject(decodedPayload, Map.class);
-        return payload.get("name").toString();
+        try {
+            javax.servlet.http.HttpServletRequest request = HttpContextUtils.getHttpServletRequest();
+            if (request == null) {
+                return null;
+            }
+            String token = request.getHeader("Authorization");
+            if (token == null || token.isEmpty()) {
+                return null;
+            }
+            String[] parts = token.split("\\.");
+            if (parts.length < 2) {
+                return null;
+            }
+            String encodedPayload = parts[1];
+            String decodedPayload = new String(Base64.getUrlDecoder().decode(encodedPayload), StandardCharsets.UTF_8);
+            Map<String, Object> payload = JSON.parseObject(decodedPayload, Map.class);
+            return payload == null || payload.get("name") == null ? null : payload.get("name").toString();
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**
      * 从JWT Token中获取用户角色ID
      *
      * @param token JWT Token
-     * @return 角色ID
+     * @return 角色ID，解析失败返回 null
      */
     public static Integer getRoleIdFromToken(String token) {
-        String[] parts = token.split("\\.");
-        String encodedPayload = parts[1];
-        String decodedPayload = new String(Base64.getUrlDecoder().decode(encodedPayload), StandardCharsets.UTF_8);
-        Map<String, Object> payload = JSON.parseObject(decodedPayload, Map.class);
-        return Integer.parseInt(payload.get("role_id").toString());
+        if (token == null || token.isEmpty()) {
+            return null;
+        }
+        try {
+            String[] parts = token.split("\\.");
+            if (parts.length < 2) {
+                return null;
+            }
+            String encodedPayload = parts[1];
+            String decodedPayload = new String(Base64.getUrlDecoder().decode(encodedPayload), StandardCharsets.UTF_8);
+            Map<String, Object> payload = JSON.parseObject(decodedPayload, Map.class);
+            if (payload == null || payload.get("role_id") == null) {
+                return null;
+            }
+            return Integer.parseInt(payload.get("role_id").toString());
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @SneakyThrows

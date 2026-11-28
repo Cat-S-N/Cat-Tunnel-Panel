@@ -213,4 +213,31 @@ class LogRedactTest {
         assertFalse(out.contains("Pass!1"), out);
         assertFalse(out.contains("Pass!2"), out);
     }
+
+    @Test
+    void singleConfigUpdateNameValuePairRedactsSecretsInBothKeyOrders() {
+        // /config/update-single 正序:{"name":"register_invite_code","value":"SECRET"}
+        String fwdInvite = "{\"name\":\"register_invite_code\",\"value\":\"INVITE_SECRET_999,VIP_888\"}";
+        String outFwd = LogRedact.redact(fwdInvite);
+        assertEquals("{\"name\":\"register_invite_code\",\"value\":\"***\"}", outFwd);
+        assertFalse(outFwd.contains("INVITE_SECRET_999"));
+
+        // 反序:{"value":"SECRET","name":"register_invite_code"} 以及 tg_bot_token / webhook_url
+        String revInvite = "{\"value\":\"INVITE_REV_777\",\"name\":\"register_invite_code\"}";
+        String outRev = LogRedact.redact(revInvite);
+        assertEquals("{\"value\":\"***\",\"name\":\"register_invite_code\"}", outRev);
+        assertFalse(outRev.contains("INVITE_REV_777"));
+
+        String tgSingle = "{\"name\":\"tg_bot_token\",\"value\":\"123456:ABCDEF_SECRET\"}";
+        assertFalse(LogRedact.redact(tgSingle).contains("ABCDEF_SECRET"));
+
+        String hookSingle = "{\"name\":\"webhook_url\",\"value\":\"https://open.feishu.cn/open-apis/bot/v2/hook/HOOK_SEC\"}";
+        assertFalse(LogRedact.redact(hookSingle).contains("HOOK_SEC"));
+
+        // 普通非敏感配置项保持原样可审计
+        String normalCfg = "{\"name\":\"app_name\",\"value\":\"Cat Tunnel Panel\"}";
+        assertEquals(normalCfg, LogRedact.redact(normalCfg));
+        String quotaCfg = "{\"name\":\"register_default_flow\",\"value\":\"50\"}";
+        assertEquals(quotaCfg, LogRedact.redact(quotaCfg));
+    }
 }

@@ -156,4 +156,43 @@ class ViteConfigPublicKeysTest {
         R r = ctl.getConfigByName(new HashMap<>(), req);
         assertNotEquals(0, r.getCode());
     }
+
+    @Test
+    void updateSingleHandlesNullParamsAndClearsOptionalInviteCodeSafely() throws Exception {
+        ViteConfigServiceImpl realSvc = Mockito.spy(new ViteConfigServiceImpl());
+        ViteConfigController localCtl = new ViteConfigController();
+        Field s = BaseController.class.getDeclaredField("viteConfigService");
+        s.setAccessible(true);
+        s.set(localCtl, realSvc);
+
+        // 1. null 请求体不抛 NPE
+        R nullBody = localCtl.updateConfig(null);
+        assertNotEquals(0, nullBody.getCode());
+
+        // 2. value 为 null 时清空可选配置 register_invite_code 成功，不抛 NPE
+        ViteConfig existingInvite = new ViteConfig();
+        existingInvite.setId(9L);
+        existingInvite.setName("register_invite_code");
+        existingInvite.setValue("OLD_CODE");
+        Mockito.doReturn(existingInvite).when(realSvc).getOne(Mockito.any(QueryWrapper.class));
+        Mockito.doReturn(true).when(realSvc).updateById(Mockito.any(ViteConfig.class));
+
+        Map<String, Object> clearInvite = new HashMap<>();
+        clearInvite.put("name", "register_invite_code");
+        clearInvite.put("value", null);
+        R cleared = localCtl.updateConfig(clearInvite);
+        assertEquals(0, cleared.getCode());
+        assertEquals("", existingInvite.getValue());
+
+        // 3. 必填项 value 为 null 返回业务错误而非 NPE
+        Map<String, Object> nullAppName = new HashMap<>();
+        nullAppName.put("name", "app_name");
+        nullAppName.put("value", null);
+        R rejected = localCtl.updateConfig(nullAppName);
+        assertNotEquals(0, rejected.getCode());
+
+        // 4. testAlert 未注入告警组件时优雅返回提示
+        R noNotifier = localCtl.testAlert(new HashMap<>());
+        assertNotEquals(0, noNotifier.getCode());
+    }
 }

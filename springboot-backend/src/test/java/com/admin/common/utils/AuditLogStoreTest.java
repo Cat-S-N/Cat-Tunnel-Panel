@@ -244,4 +244,148 @@ class AuditLogStoreTest {
                 org.mockito.ArgumentMatchers.anyLong()
         );
     }
+
+    @Test
+    void recordIfAuditable_registerSkipsDuplicateOnSuccessAndRedactsSecretsOnFailure() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        AuditLogStore store = new AuditLogStore();
+        ReflectionTestUtils.setField(store, "jdbc", jdbc);
+        ReflectionTestUtils.setField(store, "available", true);
+        ReflectionTestUtils.setField(store, "executor", new java.util.concurrent.AbstractExecutorService() {
+            @Override public void shutdown() {}
+            @Override public java.util.List<Runnable> shutdownNow() { return Collections.emptyList(); }
+            @Override public boolean isShutdown() { return false; }
+            @Override public boolean isTerminated() { return false; }
+            @Override public boolean awaitTermination(long timeout, java.util.concurrent.TimeUnit unit) { return true; }
+            @Override public void execute(Runnable command) { command.run(); }
+        });
+
+        // 注册成功已由 UserServiceImpl.register 独立记录，AOP 层不重复落库
+        store.recordIfAuditable(null, "198.51.100.66",
+                "com.admin.controller.UserController.register",
+                "{\"username\":\"new_cat\",\"password\":\"PlainPass!1\",\"confirmPassword\":\"PlainPass!1\",\"inviteCode\":\"VIP_ONLY_99\"}",
+                com.admin.common.lang.R.ok("注册成功"));
+        org.mockito.Mockito.verifyNoInteractions(jdbc);
+
+        // 注册失败（如错误邀请码爆破）记录失败审计，自动提取尝试用户名并彻底遮蔽密码与邀请码
+        store.recordIfAuditable(null, "198.51.100.66, 10.0.0.1",
+                "com.admin.controller.UserController.register",
+                "{\"username\":\"intruder_01\",\"password\":\"GuessPass!9\",\"confirmPassword\":\"GuessPass!9\",\"inviteCode\":\"WRONG_INVITE_777\"}",
+                com.admin.common.lang.R.err("邀请码无效"));
+        verify(jdbc).update(
+                contains("INSERT INTO `audit_log`"),
+                eq(null),
+                eq("intruder_01"),
+                eq("-"),
+                eq("用户自助注册"),
+                eq("UserController.register"),
+                eq("198.51.100.66"),
+                org.mockito.ArgumentMatchers.argThat(p -> p instanceof String
+                        && !((String) p).contains("GuessPass!9")
+                        && !((String) p).contains("WRONG_INVITE_777")
+                        && ((String) p).contains("\"inviteCode\":\"***\"")),
+                org.mockito.ArgumentMatchers.intThat(code -> code != 0),
+                org.mockito.ArgumentMatchers.anyLong()
+        );
+    }
+
+    @Test
+    void maskSensitiveParams_redactsSingleAndBatchInviteCodeConfigUpdates() {
+        String singleUpdate = "{\"name\":\"register_invite_code\",\"value\":\"SUPER_INVITE_2026\"}";
+        String maskedSingle = AuditLogStore.maskSensitiveParams(singleUpdate);
+        assertFalse(maskedSingle.contains("SUPER_INVITE_2026"), maskedSingle);
+        assertEquals("{\"name\":\"register_invite_code\",\"value\":\"***\"}", maskedSingle);
+
+        String reverseSingle = "{\"value\":\"SUPER_INVITE_REV\",\"name\":\"register_invite_code\"}";
+        String maskedRev = AuditLogStore.maskSensitiveParams(reverseSingle);
+        assertFalse(maskedRev.contains("SUPER_INVITE_REV"), maskedRev);
+
+        String monitorSave = "{\"tg_token\":\"888888:BOT_SECRET_XYZ\",\"tg_chat\":\"10001\"}";
+        String maskedMonitor = AuditLogStore.maskSensitiveParams(monitorSave);
+        assertFalse(maskedMonitor.contains("BOT_SECRET_XYZ"), maskedMonitor);
+        assertTrue(maskedMonitor.contains("\"tg_chat\":\"10001\""), maskedMonitor);
+    }
+
+    @Test
+    void resolvesMonitorAndForwardOrderActions() {
+        assertEquals("更新监控告警设置",
+                AuditLogStore.resolveAction("com.admin.monitor.MonitorController.saveSettings"));
+        assertEquals("测试Telegram告警",
+                AuditLogStore.resolveAction("com.admin.monitor.MonitorController.testTelegram"));
+        assertEquals("更新节点监控配置",
+                AuditLogStore.resolveAction("com.admin.monitor.MonitorController.saveMeta"));
+        assertEquals("保存探测目标",
+                AuditLogStore.resolveAction("com.admin.monitor.MonitorController.saveTarget"));
+        assertEquals("删除探测目标",
+                AuditLogStore.resolveAction("com.admin.monitor.MonitorController.deleteTarget"));
+        assertEquals("更新转发排序",
+                AuditLogStore.resolveAction("com.admin.controller.ForwardController.updateForwardOrder"));
+    }
+
+    @Test
+    void query_preventsIntegerOverflowEscapesLikeWildcardsAndFiltersCategories() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        AuditLogStore store = new AuditLogStore();
+        ReflectionTestUtils.setField(store, "jdbc", jdbc);
+        ReflectionTestUtils.setField(store, "available", true);
+
+        when(jdbc.queryForObject(anyString(), eq(Long.class), any(Object[].class))).thenReturn(0L);
+        when(jdbc.queryForList(anyString(), any(Object[].class))).thenReturn(Collections.emptyList());
+
+        // 1. 极端页码与非正数 size 裁剪，严禁产生负数 OFFSET
+        Map<String, Object> extreme = store.query(Integer.MAX_VALUE, 5000, null, null, "all", "all");
+        assertEquals(AuditLogStore.MAX_PAGE_NUMBER, extreme.get("page"));
+        assertEquals(AuditLogStore.MAX_PAGE_SIZE, extreme.get("size"));
+        int expectedMaxOffset = (AuditLogStore.MAX_PAGE_NUMBER - 1) * AuditLogStore.MAX_PAGE_SIZE;
+        assertTrue(expectedMaxOffset > 0);
+        verify(jdbc).queryForList(contains("LIMIT ? OFFSET ?"), eq(100), eq(expectedMaxOffset));
+
+        Map<String, Object> negPage = store.query(-99, -5, null, null, null, null);
+        assertEquals(1, negPage.get("page"));
+        assertEquals(1, negPage.get("size"));
+
+        // 2. LIKE 通配符安全转义与超长关键词截断
+        assertEquals("alice!_01!%test!!", AuditLogStore.escapeLike("alice_01%test!"));
+        store.query(1, 20, "  alice_01%  ", 7L, "failed", "register");
+        verify(jdbc).queryForList(
+                org.mockito.ArgumentMatchers.argThat(sql -> sql.contains("UserController.register")
+                        && sql.contains("ESCAPE '!'")
+                        && sql.contains("`result_code` <> 0")),
+                eq(7L),
+                eq("%alice!_01!%%"),
+                eq("%alice!_01!%%"),
+                eq("%alice!_01!%%"),
+                eq("%alice!_01!%%"),
+                eq("%alice!_01!%%"),
+                eq("%alice!_01!%%"),
+                eq(20),
+                eq(0)
+        );
+
+        // 3. 全部事件分类归一化校验
+        for (String cat : new String[]{"login", "register", "password", "config", "user", "node", "forward"}) {
+            assertEquals(cat, AuditLogStore.normalizeCategory("  " + cat.toUpperCase() + " "));
+            Map<String, Object> catRes = store.query(1, 10, null, null, "all", cat);
+            assertEquals(cat, catRes.get("category"));
+        }
+        assertEquals("all", AuditLogStore.normalizeCategory(null));
+        assertEquals("all", AuditLogStore.normalizeCategory("invalid_type"));
+    }
+
+    @Test
+    void clearAll_andUnavailableFallbackBehaveSafely() {
+        AuditLogStore uninitialized = new AuditLogStore();
+        assertEquals(0, uninitialized.clearAll());
+        assertEquals(0L, uninitialized.query(1, 20, "x", null).get("total"));
+
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        AuditLogStore store = new AuditLogStore();
+        ReflectionTestUtils.setField(store, "jdbc", jdbc);
+        ReflectionTestUtils.setField(store, "available", true);
+        when(jdbc.update("DELETE FROM `audit_log`")).thenReturn(15);
+        assertEquals(15, store.clearAll());
+
+        when(jdbc.update("DELETE FROM `audit_log`")).thenThrow(new RuntimeException("db locked"));
+        assertEquals(0, store.clearAll());
+    }
 }

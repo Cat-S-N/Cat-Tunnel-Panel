@@ -88,4 +88,13 @@ class JwtUtilTest {
 
         assertFalse(JwtUtil.validateToken(encodedHeader + "." + encodedPayload + "." + sig));
     }
+
+    @Test
+    void claimExtractorsReturnNullOnMissingOrMalformedTokens() {
+        assertNull(JwtUtil.getUserIdFromToken(null));
+        assertNull(JwtUtil.getUserIdFromToken(""));
+        assertNull(JwtUtil.getUserIdFromToken("malformed"));
+        assertNull(JwtUtil.getRoleIdFromToken(null));
+        assertNull(JwtUtil.getRoleIdFromToken("bad.payload"));
+    }
 }

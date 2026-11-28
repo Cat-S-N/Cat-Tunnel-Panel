@@ -88,11 +88,16 @@ public class UserController extends BaseController {
     @LogAnnotation
     @RequireRole
     @PostMapping("/managed-nodes")
-    public R setManagedNodes(@RequestBody Map<String, Object> body) {
+    public R setManagedNodes(@RequestBody(required = false) Map<String, Object> body) {
         if (body == null || body.get("userId") == null) {
             return R.err("缺少用户ID");
         }
-        Long userId = Long.valueOf(String.valueOf(body.get("userId")));
+        final Long userId;
+        try {
+            userId = Long.valueOf(String.valueOf(body.get("userId")).trim());
+        } catch (NumberFormatException e) {
+            return R.err("用户ID格式无效");
+        }
         User target = userService.getById(userId);
         if (target == null) {
             return R.err("用户不存在");
@@ -105,7 +110,11 @@ public class UserController extends BaseController {
         if (raw instanceof java.util.Collection<?>) {
             for (Object item : (java.util.Collection<?>) raw) {
                 if (item != null) {
-                    nodeIds.add(Long.valueOf(String.valueOf(item)));
+                    try {
+                        nodeIds.add(Long.valueOf(String.valueOf(item).trim()));
+                    } catch (NumberFormatException e) {
+                        return R.err("节点ID格式无效");
+                    }
                 }
             }
         }
@@ -126,8 +135,16 @@ public class UserController extends BaseController {
     @LogAnnotation
     @RequireRole
     @PostMapping("/delete")
-    public R delete(@RequestBody Map<String, Object> params) {
-        Long id = Long.valueOf(params.get("id").toString());
+    public R delete(@RequestBody(required = false) Map<String, Object> params) {
+        if (params == null || params.get("id") == null) {
+            return R.err("缺少用户ID");
+        }
+        final Long id;
+        try {
+            id = Long.valueOf(params.get("id").toString().trim());
+        } catch (NumberFormatException e) {
+            return R.err("用户ID格式无效");
+        }
         return userService.deleteUser(id);
     }
 
@@ -176,18 +193,22 @@ public class UserController extends BaseController {
         String keyword = null;
         Long userId = null;
         String status = null;
+        String category = null;
         if (body != null) {
             if (body.get("page") != null) {
-                try { page = Integer.parseInt(String.valueOf(body.get("page"))); } catch (NumberFormatException ignored) {}
+                try { page = Integer.parseInt(String.valueOf(body.get("page")).trim()); } catch (NumberFormatException ignored) {}
             }
             if (body.get("size") != null) {
-                try { size = Integer.parseInt(String.valueOf(body.get("size"))); } catch (NumberFormatException ignored) {}
+                try { size = Integer.parseInt(String.valueOf(body.get("size")).trim()); } catch (NumberFormatException ignored) {}
             }
             if (body.get("keyword") != null) {
                 keyword = String.valueOf(body.get("keyword"));
             }
             if (body.get("status") != null) {
                 status = String.valueOf(body.get("status"));
+            }
+            if (body.get("category") != null) {
+                category = String.valueOf(body.get("category"));
             }
             if (body.get("userId") != null) {
                 try {
@@ -198,7 +219,7 @@ public class UserController extends BaseController {
                 } catch (NumberFormatException ignored) {}
             }
         }
-        return R.ok(auditLogStore.query(page, size, keyword, userId, status));
+        return R.ok(auditLogStore.query(page, size, keyword, userId, status, category));
     }
 
     /** 清空全部操作审计日志（仅超级管理员可用） */

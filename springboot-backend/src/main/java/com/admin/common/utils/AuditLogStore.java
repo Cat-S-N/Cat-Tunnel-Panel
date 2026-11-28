@@ -32,9 +32,12 @@ public class AuditLogStore {
 
     private static final long RETENTION_MS = 90L * 24 * 3600 * 1000;
     private static final long RETRY_INTERVAL_MS = 30_000L;
+    static final int MAX_PAGE_SIZE = 100;
+    static final int MAX_PAGE_NUMBER = 100_000;
+    static final int MAX_KEYWORD_LEN = 128;
 
     private static final Pattern EXTRA_SECRET_PATTERN = Pattern.compile(
-            "(?i)\"(tg_bot_token|webhook_url|token|secret|pwd|passwd|password|oldPassword|newPassword|currentPassword|confirmPassword|inviteCode|invite_code|register_invite_code)\"\\s*:\\s*\"(?:[^\"\\\\]++|\\\\.)*+\"");
+            "(?i)\"(tg_bot_token|tg_token|webhook_url|sub_token|subToken|token|secret|pwd|passwd|password|oldPassword|newPassword|currentPassword|confirmPassword|inviteCode|invite_code|register_invite_code)\"\\s*:\\s*\"(?:[^\"\\\\]++|\\\\.)*+\"");
 
     private static final Pattern LOGIN_USER_PATTERN = Pattern.compile(
             "(?i)\"(?:username|user)\"\\s*:\\s*\"([^\"\\\\]{1,64})\"");
@@ -78,16 +81,24 @@ public class AuditLogStore {
         m.put("UserController.setManagedNodes", "分配节点管理权限");
         m.put("UserController.updatePassword", "修改密码");
         m.put("UserController.login", "用户登录");
+        m.put("UserController.register", "用户自助注册");
         m.put("UserController.clearAuditLogs", "清空操作审计日志");
 
         m.put("ViteConfigController.updateConfigs", "批量更新网站配置");
         m.put("ViteConfigController.updateConfig", "更新网站配置");
         m.put("ViteConfigController.testAlert", "发送测试告警");
 
+        m.put("MonitorController.saveSettings", "更新监控告警设置");
+        m.put("MonitorController.testTelegram", "测试Telegram告警");
+        m.put("MonitorController.saveMeta", "更新节点监控配置");
+        m.put("MonitorController.saveTarget", "保存探测目标");
+        m.put("MonitorController.deleteTarget", "删除探测目标");
+
         m.put("ForwardController.create", "创建转发");
         m.put("ForwardController.assignToUser", "分配转发");
         m.put("ForwardController.setClientLink", "设置客户端链接");
         m.put("ForwardController.update", "更新转发");
+        m.put("ForwardController.updateForwardOrder", "更新转发排序");
         m.put("ForwardController.delete", "删除转发");
         m.put("ForwardController.forceDelete", "强制删除转发");
         m.put("ForwardController.pause", "暂停转发");
@@ -182,12 +193,16 @@ public class AuditLogStore {
         return ACTION_MAP.get(key);
     }
 
-    /** 屏蔽额外敏感配置项（例如 Telegram Token / Webhook URL / 密码字段） */
+    /** 屏蔽额外敏感配置项（例如 Telegram Token / Webhook URL / 邀请码 / 密码字段 / 单键配置更新对象） */
     public static String maskSensitiveParams(String params) {
-        if (params == null) {
+        if (params == null || params.isEmpty()) {
             return "";
         }
-        String masked = EXTRA_SECRET_PATTERN.matcher(params).replaceAll("\"$1\":\"***\"");
+        String redacted = com.admin.common.aop.LogRedact.redact(params);
+        if (redacted == null) {
+            return "";
+        }
+        String masked = EXTRA_SECRET_PATTERN.matcher(redacted).replaceAll("\"$1\":\"***\"");
         return masked.length() <= 950 ? masked : masked.substring(0, 950) + "...";
     }
 
@@ -240,11 +255,13 @@ public class AuditLogStore {
         }
 
         String shortMethod = extractShortMethod(controllerMethod);
-        if (resultCode == 0 && "UserController.updatePassword".equals(shortMethod)) {
-            // 修改密码成功事件已由 UserServiceImpl.updatePassword 独立记录（仅含新旧用户名，零密码接触），避免重复落库
+        if (resultCode == 0 && ("UserController.updatePassword".equals(shortMethod)
+                || "UserController.register".equals(shortMethod))) {
+            // 修改密码与自助注册成功事件已由 UserServiceImpl 独立记录（零密码/零邀请码接触），跳过 AOP 重复落库
             return;
         }
-        if ("匿名".equals(username) && "UserController.login".equals(shortMethod)) {
+        if ("匿名".equals(username) && ("UserController.login".equals(shortMethod)
+                || "UserController.register".equals(shortMethod))) {
             String loginUser = extractLoginUsername(requestParams);
             if (loginUser != null && !loginUser.isEmpty()) {
                 username = loginUser;
@@ -388,14 +405,19 @@ public class AuditLogStore {
     }
 
     public Map<String, Object> query(int page, int size, String keyword, Long userId) {
-        return query(page, size, keyword, userId, null);
+        return query(page, size, keyword, userId, null, null);
     }
 
     public Map<String, Object> query(int page, int size, String keyword, Long userId, String status) {
-        int safePage = Math.max(1, page);
-        int safeSize = Math.min(100, Math.max(1, size));
+        return query(page, size, keyword, userId, status, null);
+    }
+
+    public Map<String, Object> query(int page, int size, String keyword, Long userId, String status, String category) {
+        int safePage = Math.min(MAX_PAGE_NUMBER, Math.max(1, page));
+        int safeSize = Math.min(MAX_PAGE_SIZE, Math.max(1, size));
         int offset = (safePage - 1) * safeSize;
         String normalizedStatus = normalizeStatus(status);
+        String normalizedCategory = normalizeCategory(category);
 
         Map<String, Object> res = new LinkedHashMap<>();
         res.put("records", Collections.emptyList());
@@ -403,6 +425,8 @@ public class AuditLogStore {
         res.put("failedCount", 0L);
         res.put("page", safePage);
         res.put("size", safeSize);
+        res.put("status", normalizedStatus);
+        res.put("category", normalizedCategory);
 
         if (!ensureTable()) {
             return res;
@@ -414,14 +438,22 @@ public class AuditLogStore {
             baseWhere.append(" AND `user_id` = ?");
             baseArgs.add(userId);
         }
-        if (keyword != null && !keyword.trim().isEmpty()) {
-            String like = "%" + keyword.trim() + "%";
-            baseWhere.append(" AND (`username` LIKE ? OR `action` LIKE ? OR `ip` LIKE ? OR `params` LIKE ? OR `method` LIKE ?)");
-            baseArgs.add(like);
-            baseArgs.add(like);
-            baseArgs.add(like);
-            baseArgs.add(like);
-            baseArgs.add(like);
+        appendCategoryFilter(baseWhere, normalizedCategory);
+        if (keyword != null) {
+            String trimmed = keyword.trim();
+            if (!trimmed.isEmpty()) {
+                if (trimmed.length() > MAX_KEYWORD_LEN) {
+                    trimmed = trimmed.substring(0, MAX_KEYWORD_LEN);
+                }
+                String like = "%" + escapeLike(trimmed) + "%";
+                baseWhere.append(" AND (`username` LIKE ? ESCAPE '!' OR `action` LIKE ? ESCAPE '!' OR `ip` LIKE ? ESCAPE '!' OR `params` LIKE ? ESCAPE '!' OR `method` LIKE ? ESCAPE '!' OR `role_label` LIKE ? ESCAPE '!')");
+                baseArgs.add(like);
+                baseArgs.add(like);
+                baseArgs.add(like);
+                baseArgs.add(like);
+                baseArgs.add(like);
+                baseArgs.add(like);
+            }
         }
 
         StringBuilder filteredWhere = new StringBuilder(baseWhere);
@@ -464,6 +496,66 @@ public class AuditLogStore {
             return s;
         }
         return "all";
+    }
+
+    static String normalizeCategory(String category) {
+        if (category == null) return "all";
+        String c = category.trim().toLowerCase(java.util.Locale.ROOT);
+        switch (c) {
+            case "login":
+            case "register":
+            case "password":
+            case "config":
+            case "user":
+            case "node":
+            case "forward":
+                return c;
+            default:
+                return "all";
+        }
+    }
+
+    private static void appendCategoryFilter(StringBuilder where, String normalizedCategory) {
+        switch (normalizedCategory) {
+            case "login":
+                where.append(" AND (`method` = 'UserController.login' OR `action` = '用户登录')");
+                break;
+            case "register":
+                where.append(" AND (`method` = 'UserController.register' OR `action` = '用户自助注册')");
+                break;
+            case "password":
+                where.append(" AND (`method` = 'UserController.updatePassword' OR `action` = '修改密码')");
+                break;
+            case "config":
+                where.append(" AND (`method` LIKE 'ViteConfigController.%' OR `method` LIKE 'MonitorController.%' OR `method` = 'UserController.clearAuditLogs')");
+                break;
+            case "user":
+                where.append(" AND (`method` LIKE 'UserController.%' AND `method` NOT IN ('UserController.login', 'UserController.register', 'UserController.updatePassword', 'UserController.clearAuditLogs'))");
+                break;
+            case "node":
+                where.append(" AND (`method` LIKE 'NodeController.%' OR `method` LIKE 'InboundController.%' OR `method` LIKE 'LandingController.%')");
+                break;
+            case "forward":
+                where.append(" AND (`method` LIKE 'ForwardController.%' OR `method` LIKE 'TunnelController.%' OR `method` LIKE 'SpeedLimitController.%')");
+                break;
+            default:
+                break;
+        }
+    }
+
+    static String escapeLike(String raw) {
+        if (raw == null || raw.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder(raw.length() + 8);
+        for (int i = 0; i < raw.length(); i++) {
+            char ch = raw.charAt(i);
+            if (ch == '!' || ch == '%' || ch == '_') {
+                sb.append('!');
+            }
+            sb.append(ch);
+        }
+        return sb.toString();
     }
 
     public int clearAll() {

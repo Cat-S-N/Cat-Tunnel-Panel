@@ -181,12 +181,24 @@ export const getSubAccessLogs = (userId: number, nodeId?: number | null) =>
   Network.post("/inbound/sub-logs", { userId, nodeId: nodeId ?? null }, { retryable: true });
 
 // 操作审计日志
+export type AuditStatusFilter = "all" | "success" | "failed";
+export type AuditCategoryFilter =
+  | "all"
+  | "login"
+  | "register"
+  | "password"
+  | "config"
+  | "user"
+  | "node"
+  | "forward";
+
 export const getAuditLogs = (params: {
   page?: number;
   size?: number;
   keyword?: string;
   userId?: number | null;
-  status?: "all" | "success" | "failed";
+  status?: AuditStatusFilter;
+  category?: AuditCategoryFilter;
 }) =>
   Network.post("/user/audit-logs", params, { retryable: true });
 export const clearAuditLogs = () => Network.post("/user/audit-logs-clear", {});

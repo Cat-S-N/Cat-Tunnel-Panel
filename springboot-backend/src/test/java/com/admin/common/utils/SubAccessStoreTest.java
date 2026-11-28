@@ -125,4 +125,49 @@ class SubAccessStoreTest {
         assertEquals(4L, resAll.get("uniqueIps24h"));
         assertEquals(Collections.emptyList(), resAll.get("logs"));
     }
+
+    @Test
+    void record_resolvesTokenOwnerTriggersLeakAlertOncePerDayAndIgnoresInvalidTokens() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        AlertNotifier alertNotifier = mock(AlertNotifier.class);
+        SubAccessStore store = new SubAccessStore();
+        ReflectionTestUtils.setField(store, "jdbc", jdbc);
+        ReflectionTestUtils.setField(store, "alertNotifier", alertNotifier);
+        ReflectionTestUtils.setField(store, "available", true);
+        ReflectionTestUtils.setField(store, "executor", new java.util.concurrent.AbstractExecutorService() {
+            @Override public void shutdown() {}
+            @Override public java.util.List<Runnable> shutdownNow() { return Collections.emptyList(); }
+            @Override public boolean isShutdown() { return false; }
+            @Override public boolean isTerminated() { return false; }
+            @Override public boolean awaitTermination(long timeout, java.util.concurrent.TimeUnit unit) { return true; }
+            @Override public void execute(Runnable command) { command.run(); }
+        });
+
+        // 空令牌与超长令牌直接忽略
+        store.record(null, "sub", null);
+        store.record("   ", "sub", null);
+        store.record("t".repeat(129), "sub", null);
+        verifyNoInteractions(jdbc);
+
+        // 聚合订阅 token 归属解析 + 24h 独立 IP 达到 4 触发泄露预警 + 24h 内冷却不重复发送
+        HttpServletRequest req = mock(HttpServletRequest.class);
+        when(req.getHeader("X-Real-IP")).thenReturn("203.0.113.77");
+        when(req.getHeader("User-Agent")).thenReturn("ClashMeta/1.18");
+
+        when(jdbc.queryForList(contains("WHERE `all_sub_token` = ?"), eq(Long.class), eq("agg_tok_1")))
+                .thenReturn(Collections.singletonList(55L));
+        when(jdbc.queryForObject(contains("COUNT(DISTINCT `ip`)"), eq(Long.class), eq(55L), anyLong()))
+                .thenReturn(4L);
+        when(jdbc.queryForList(contains("SELECT `user` FROM `user`"), eq(String.class), eq(55L)))
+                .thenReturn(Collections.singletonList("rider_55"));
+
+        store.record("  agg_tok_1  ", "clash", req);
+        store.record("agg_tok_1", "clash", req);
+
+        verify(jdbc, times(2)).update(
+                contains("INSERT INTO `sub_access_log`"),
+                eq(55L), eq(0L), eq("clash"), eq("203.0.113.77"), eq("ClashMeta/1.18"), anyLong());
+        // 冷却机制保证 24 小时内只发 1 次告警
+        verify(alertNotifier, times(1)).notifyAsync(contains("泄露预警"), contains("rider_55"));
+    }
 }

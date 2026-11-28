@@ -92,9 +92,12 @@ public class ViteConfigController extends BaseController {
     @LogAnnotation
     @RequireRole
     @PostMapping("/update-single")
-    public R updateConfig(@RequestBody Map<String, Object> params) {
-        String name = params.get("name").toString();
-        String value = params.get("value").toString();
+    public R updateConfig(@RequestBody(required = false) Map<String, Object> params) {
+        if (params == null) {
+            return R.err("配置参数不能为空");
+        }
+        String name = params.get("name") == null ? null : params.get("name").toString();
+        String value = params.get("value") == null ? null : params.get("value").toString();
         return viteConfigService.updateConfig(name, value);
     }
 

@@ -35,6 +35,13 @@ public final class LogRedact {
     private static final Pattern JSON_FIELD = Pattern.compile(
             "(\"" + KEY + "\"\\s*:\\s*)(?:\"(?:[^\"\\\\]++|\\\\.)*+(?:\"|\\z)|\\[[^\\]]*+(?:\\]|\\z)|\\{[^{}]*+(?:\\}|\\z)|-?\\d++(?:\\.\\d++)?)", CI);
 
+    /** 名值对 JSON 对象(如 /config/update-single):{"name":"register_invite_code","value":"..."} 正序与反序均遮盖 value */
+    private static final Pattern KV_JSON_PAIR_FWD = Pattern.compile(
+            "(\"(?:name|key|configName|k)\"\\s*:\\s*\"" + KEY + "\"\\s*,\\s*\"(?:value|val|configValue|v)\"\\s*:\\s*)(?:\"(?:[^\"\\\\]++|\\\\.)*+(?:\"|\\z)|-?\\d++(?:\\.\\d++)?)", CI);
+
+    private static final Pattern KV_JSON_PAIR_REV = Pattern.compile(
+            "(\"(?:value|val|configValue|v)\"\\s*:\\s*)(?:\"(?:[^\"\\\\]++|\\\\.)*+\"|-?\\d++(?:\\.\\d++)?)(\\s*,\\s*\"(?:name|key|configName|k)\"\\s*:\\s*\"" + KEY + "\")", CI);
+
     /** 字符串里再转义过一层的 JSON:\"secret\":\"...\" */
     private static final Pattern ESC_JSON_FIELD = Pattern.compile(
             "(\\\\\"" + KEY + "\\\\\"\\s*:\\s*)\\\\\"(?:[^\\\\]++|\\\\(?!\"))*+(?:\\\\\"|\\z)", CI);
@@ -70,6 +77,8 @@ public final class LogRedact {
                 s = s.substring(0, MAX_LEN);
             }
             String out = JSON_FIELD.matcher(s).replaceAll("$1\"***\"");
+            out = KV_JSON_PAIR_FWD.matcher(out).replaceAll("$1\"***\"");
+            out = KV_JSON_PAIR_REV.matcher(out).replaceAll("$1\"***\"$2");
             out = ESC_JSON_FIELD.matcher(out).replaceAll(mr -> Matcher.quoteReplacement(mr.group(1) + "\\\"***\\\""));
             out = KV.matcher(out).replaceAll("$1***");
             out = INSTALL_SECRET.matcher(out).replaceAll("$1***");

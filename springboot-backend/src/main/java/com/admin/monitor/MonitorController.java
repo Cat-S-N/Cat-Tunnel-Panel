@@ -1,6 +1,7 @@
 package com.admin.monitor;
 
 import com.admin.common.annotation.RequireRole;
+import com.admin.common.aop.LogAnnotation;
 import com.admin.common.lang.R;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.*;
@@ -24,12 +25,17 @@ public class MonitorController {
      */
     @RequireRole
     @PostMapping("/metrics")
-    public R metrics(@RequestBody Map<String, Object> params) {
-        Object idObj = params.get("nodeId");
+    public R metrics(@RequestBody(required = false) Map<String, Object> params) {
+        Object idObj = params == null ? null : params.get("nodeId");
         if (idObj == null) {
             return R.err("缺少 nodeId");
         }
-        long nodeId = Long.parseLong(idObj.toString());
+        final long nodeId;
+        try {
+            nodeId = Long.parseLong(idObj.toString().trim());
+        } catch (NumberFormatException e) {
+            return R.err("nodeId 格式无效");
+        }
         String range = String.valueOf(params.getOrDefault("range", "24h"));
 
         Window w = Window.of(range);
@@ -73,12 +79,17 @@ public class MonitorController {
     /** 某台转发机到各目标的延迟/丢包。supported=false 表示节点版本太老,还不能测 */
     @RequireRole
     @PostMapping("/probes")
-    public R probes(@RequestBody Map<String, Object> params) {
-        Object idObj = params.get("nodeId");
+    public R probes(@RequestBody(required = false) Map<String, Object> params) {
+        Object idObj = params == null ? null : params.get("nodeId");
         if (idObj == null) {
             return R.err("缺少 nodeId");
         }
-        long nodeId = Long.parseLong(idObj.toString());
+        final long nodeId;
+        try {
+            nodeId = Long.parseLong(idObj.toString().trim());
+        } catch (NumberFormatException e) {
+            return R.err("nodeId 格式无效");
+        }
         String range = String.valueOf(params.getOrDefault("range", "24h"));
         // 延迟本来就 5 分钟一个点,1h/24h 不用再聚合
         Window w = Window.of(range);
@@ -119,9 +130,13 @@ public class MonitorController {
         return R.ok(s);
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/settings/save")
-    public R saveSettings(@RequestBody Map<String, Object> p) {
+    public R saveSettings(@RequestBody(required = false) Map<String, Object> p) {
+        if (p == null) {
+            return R.err("参数不能为空");
+        }
         String[] keys = {MonitorSettings.TG_CHAT, MonitorSettings.OFFLINE_MIN, MonitorSettings.EXPIRE_DAYS,
                 MonitorSettings.TRAFFIC_ALERT, MonitorSettings.STATUS_ENABLED, MonitorSettings.STATUS_TITLE};
         for (String k : keys) {
@@ -144,6 +159,7 @@ public class MonitorController {
         return R.ok();
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/settings/test")
     public R testTelegram() {
@@ -152,10 +168,19 @@ public class MonitorController {
     }
 
     /** 转发机的到期日 / 流量额度 / 状态页显示 */
+    @LogAnnotation
     @RequireRole
     @PostMapping("/meta/save")
-    public R saveMeta(@RequestBody Map<String, Object> p) {
-        long nodeId = Long.parseLong(String.valueOf(p.get("nodeId")));
+    public R saveMeta(@RequestBody(required = false) Map<String, Object> p) {
+        if (p == null || p.get("nodeId") == null) {
+            return R.err("缺少 nodeId");
+        }
+        final long nodeId;
+        try {
+            nodeId = Long.parseLong(String.valueOf(p.get("nodeId")).trim());
+        } catch (NumberFormatException e) {
+            return R.err("nodeId 格式无效");
+        }
         String exp = p.get("expireDate") == null ? "" : p.get("expireDate").toString().trim();
         java.sql.Date expDate = null;
         if (!exp.isEmpty()) {
@@ -217,9 +242,13 @@ public class MonitorController {
                 "SELECT id, name, host, port, enabled, sort FROM monitor_probe_target ORDER BY sort, id"));
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/targets/save")
-    public R saveTarget(@RequestBody Map<String, Object> p) {
+    public R saveTarget(@RequestBody(required = false) Map<String, Object> p) {
+        if (p == null) {
+            return R.err("参数不能为空");
+        }
         String name = p.get("name") == null ? "" : p.get("name").toString().trim();
         String host = p.get("host") == null ? "" : p.get("host").toString().trim();
         int port;
@@ -247,17 +276,32 @@ public class MonitorController {
             jdbc.update("INSERT INTO monitor_probe_target (name, host, port, enabled, sort) VALUES (?,?,?,?,?)",
                     name, host, port, enabled, count == null ? 0 : count + 1);
         } else {
+            final long targetId;
+            try {
+                targetId = Long.parseLong(id.toString().trim());
+            } catch (NumberFormatException e) {
+                return R.err("目标ID格式无效");
+            }
             jdbc.update("UPDATE monitor_probe_target SET name=?, host=?, port=?, enabled=? WHERE id=?",
-                    name, host, port, enabled, Long.parseLong(id.toString()));
+                    name, host, port, enabled, targetId);
         }
         probeService.pushAllOnline();
         return R.ok();
     }
 
+    @LogAnnotation
     @RequireRole
     @PostMapping("/targets/delete")
-    public R deleteTarget(@RequestBody Map<String, Object> p) {
-        long id = Long.parseLong(String.valueOf(p.get("id")));
+    public R deleteTarget(@RequestBody(required = false) Map<String, Object> p) {
+        if (p == null || p.get("id") == null) {
+            return R.err("缺少目标ID");
+        }
+        final long id;
+        try {
+            id = Long.parseLong(String.valueOf(p.get("id")).trim());
+        } catch (NumberFormatException e) {
+            return R.err("目标ID格式无效");
+        }
         jdbc.update("DELETE FROM monitor_probe_target WHERE id = ?", id);
         jdbc.update("DELETE FROM monitor_probe WHERE target_id = ?", id);
         probeService.pushAllOnline();
