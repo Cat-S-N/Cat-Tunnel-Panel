@@ -1,12 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Modal, ModalContent, ModalHeader, ModalBody } from "@heroui/modal";
 import { Button } from "@heroui/button";
 import { Spinner } from "@heroui/spinner";
+import toast from "react-hot-toast";
 import {
   ResponsiveContainer, AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, LineChart, Line,
 } from "recharts";
 import { getNodeMetrics, getNodeProbes } from "@/api";
+import { copyTextToClipboard } from "@/utils/clipboard";
 import { SKIN_CHANGED_EVENT } from "@/config/skins";
 
 // 转发机历史曲线(面板每分钟存一条,7 天后汇总成每小时一条)
@@ -17,6 +19,9 @@ const RANGES: { key: Range; label: string }[] = [
   { key: "7d", label: "7 天" },
   { key: "30d", label: "30 天" },
 ];
+
+const UPGRADE_CMD =
+  "curl -L https://github.com/Cat-S-N/Cat-Tunnel-Panel/releases/latest/download/install.sh -o install.sh && bash install.sh";
 
 const fmtBytes = (v: number) => {
   if (!v) return "0";
@@ -43,7 +48,7 @@ const themeColor = (name: string, fallback: string) => {
 
 function ChartBox({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-divider bg-content1/60 p-3">
+    <div className="tms-subpanel-card rounded-xl border border-divider bg-content1/60 p-3">
       <div className="text-xs font-medium text-default-600 mb-2">{title}</div>
       <div className="h-44 w-full text-default-500">
         <ResponsiveContainer width="100%" height="100%">{children as any}</ResponsiveContainer>
@@ -68,12 +73,18 @@ export default function NodeMonitorModal({ node, onClose }: { node: any | null; 
   const [error, setError] = useState("");
   const [probe, setProbe] = useState<any>(null);
   const [step, setStep] = useState(60);
+  const [reloadTick, setReloadTick] = useState(0);
+  const [cmdCopied, setCmdCopied] = useState(false);
+  const copyTimerRef = useRef<number | null>(null);
   const [, setSkinVersion] = useState(0);
 
   useEffect(() => {
     const onSkinChanged = () => setSkinVersion((v) => v + 1);
     window.addEventListener(SKIN_CHANGED_EVENT, onSkinChanged);
-    return () => window.removeEventListener(SKIN_CHANGED_EVENT, onSkinChanged);
+    return () => {
+      window.removeEventListener(SKIN_CHANGED_EVENT, onSkinChanged);
+      if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
+    };
   }, []);
 
   useEffect(() => {
@@ -88,16 +99,28 @@ export default function NodeMonitorModal({ node, onClose }: { node: any | null; 
           setPoints((res.data?.points || []).map((p: any) => ({ ...p, t: fmtTime(p.ts, range) })));
           setStep(res.data?.stepSeconds || 60);
         } else {
-          setError(res.msg || "获取失败");
+          setError(res.msg || "获取历史指标失败");
         }
       })
-      .catch(() => alive && setError("获取失败"))
+      .catch(() => alive && setError("网络请求异常，获取历史指标失败"))
       .finally(() => alive && setLoading(false));
     getNodeProbes(node.id, range)
       .then((res: any) => alive && res.code === 0 && setProbe(res.data))
       .catch(() => {});
     return () => { alive = false; };
-  }, [node?.id, range]);
+  }, [node?.id, range, reloadTick]);
+
+  const handleCopyUpgradeCmd = async () => {
+    const ok = await copyTextToClipboard(UPGRADE_CMD);
+    if (ok) {
+      setCmdCopied(true);
+      if (copyTimerRef.current !== null) window.clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = window.setTimeout(() => setCmdCopied(false), 1800);
+      toast.success("已复制节点升级命令");
+    } else {
+      toast.error("复制失败，请手动选中复制");
+    }
+  };
 
   const isPixel =
     typeof document !== "undefined" &&
@@ -150,12 +173,17 @@ export default function NodeMonitorModal({ node, onClose }: { node: any | null; 
     <Modal isOpen={!!node} onClose={onClose} size="4xl" scrollBehavior="inside" placement="center">
       <ModalContent>
         <ModalHeader className="flex flex-col gap-1">
-          <div className="flex items-center justify-between gap-3 flex-wrap pr-6">
-            <span>{node?.name} · 监控</span>
-            <div className="flex gap-1">
+          <div className="flex items-center justify-between gap-2 flex-wrap pr-6">
+            <span className="truncate">{node?.name} · 历史监控</span>
+            <div className="flex flex-wrap gap-1">
               {RANGES.map((r) => (
-                <Button key={r.key} size="sm" variant={range === r.key ? "solid" : "flat"}
-                  color={range === r.key ? "primary" : "default"} onPress={() => setRange(r.key)}>
+                <Button
+                  key={r.key}
+                  size="sm"
+                  variant={range === r.key ? "solid" : "flat"}
+                  color={range === r.key ? "primary" : "default"}
+                  onPress={() => setRange(r.key)}
+                >
                   {r.label}
                 </Button>
               ))}
@@ -164,23 +192,37 @@ export default function NodeMonitorModal({ node, onClose }: { node: any | null; 
         </ModalHeader>
         <ModalBody className="pb-6">
           {loading ? (
-            <div className="flex justify-center py-16"><Spinner /></div>
+            <div className="flex justify-center py-16">
+              <Spinner label="正在加载曲线数据..." />
+            </div>
           ) : error ? (
-            <div className="text-center text-danger py-12 text-sm">{error}</div>
+            <div className="tms-inline-alert-danger rounded-lg border border-danger/40 bg-danger/10 py-10 px-4 text-center space-y-3">
+              <div className="text-sm font-medium text-danger">{error}</div>
+              <div>
+                <Button
+                  size="sm"
+                  color="danger"
+                  variant="flat"
+                  onPress={() => setReloadTick((v) => v + 1)}
+                >
+                  重试加载
+                </Button>
+              </div>
+            </div>
           ) : points.length === 0 ? (
-            <div className="text-center text-default-500 py-12 text-sm leading-relaxed">
-              还没有数据。面板升级后开始记录,转发机在线时每分钟存一条,<br />过几分钟再来看。
+            <div className="tms-empty-dashed rounded-lg border border-dashed border-divider text-center text-default-500 py-12 px-4 text-sm leading-relaxed">
+              该时间范围内暂无采样记录。转发机保持在线时面板每分钟自动采集一次，请稍后再查看。
             </div>
           ) : (
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="rounded-xl bg-primary/10 px-3 py-2">
-                  <div className="text-xs text-default-500">这段时间 下行</div>
-                  <div className="font-semibold">{fmtBytes(totalRx)}</div>
+                <div className="tms-metric-tile rounded-xl bg-primary/10 px-3 py-2">
+                  <div className="text-xs text-default-500">所选时段 下行总计</div>
+                  <div className="font-semibold font-mono tabular-nums">{fmtBytes(totalRx)}</div>
                 </div>
-                <div className="rounded-xl bg-secondary/10 px-3 py-2">
-                  <div className="text-xs text-default-500">这段时间 上行</div>
-                  <div className="font-semibold">{fmtBytes(totalTx)}</div>
+                <div className="tms-metric-tile rounded-xl bg-secondary/10 px-3 py-2">
+                  <div className="text-xs text-default-500">所选时段 上行总计</div>
+                  <div className="font-semibold font-mono tabular-nums">{fmtBytes(totalTx)}</div>
                 </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -229,20 +271,32 @@ export default function NodeMonitorModal({ node, onClose }: { node: any | null; 
             </div>
           )}
           {!loading && probe && (
-            <div className="rounded-xl border border-divider bg-content1/60 p-3 mt-1">
-              <div className="text-xs font-medium text-default-600 mb-2">延迟(TCP 建连,毫秒)· 每 5 分钟测一次</div>
+            <div className="tms-subpanel-card rounded-xl border border-divider bg-content1/60 p-3 mt-1">
+              <div className="text-xs font-medium text-default-600 mb-2">延迟(TCP 建连,毫秒) · 每 5 分钟测一次</div>
               {!probe.supported ? (
-                <div className="text-xs text-default-500 leading-relaxed py-3">
-                  这台转发机的节点程序是 {probe.version || "旧版本"},延迟监测需要 {probe.minVersion} 及以上。
-                  在转发机上执行下面这条,选「2. 更新」即可(配置会保留):
-                  <code className="block mt-1.5 font-mono text-[11px] break-all bg-default-100 rounded p-2">
-                    curl -L https://github.com/Cat-S-N/Cat-Tunnel-Panel/releases/latest/download/install.sh -o install.sh && bash install.sh
-                  </code>
+                <div className="text-xs text-default-500 leading-relaxed py-2 space-y-2">
+                  <div>
+                    当前转发机节点程序版本为 <span className="font-mono">{probe.version || "旧版本"}</span>，延迟监测需要 <span className="font-mono">{probe.minVersion}</span> 及以上版本。在转发机上执行以下命令并选择「2. 更新」即可平滑升级（保留原有配置）：
+                  </div>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                    <code className="flex-1 font-mono text-[11px] break-all bg-default-100 rounded p-2">
+                      {UPGRADE_CMD}
+                    </code>
+                    <Button
+                      size="sm"
+                      variant="flat"
+                      color={cmdCopied ? "success" : "default"}
+                      className="shrink-0"
+                      onPress={handleCopyUpgradeCmd}
+                    >
+                      {cmdCopied ? "已复制 ✓" : "复制命令"}
+                    </Button>
+                  </div>
                 </div>
               ) : probeTargets.length === 0 ? (
-                <div className="text-xs text-default-500 py-3">还没有监测目标,到「监控」页的「延迟目标」里添加。</div>
+                <div className="text-xs text-default-500 py-3">暂无探测目标，可前往「监控」页的「延迟目标」标签添加。</div>
               ) : probeRows.length === 0 ? (
-                <div className="text-xs text-default-500 py-3">还没有数据,节点连上后约 5 分钟出第一批。</div>
+                <div className="text-xs text-default-500 py-3">暂无探测采样，节点在线连接后约 5 分钟产出首批数据。</div>
               ) : (
                 <div className="h-56 w-full text-default-500">
                   <ResponsiveContainer width="100%" height="100%">
@@ -250,18 +304,27 @@ export default function NodeMonitorModal({ node, onClose }: { node: any | null; 
                       <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.15} />
                       <XAxis dataKey="t" tick={AXIS} minTickGap={40} />
                       <YAxis tick={AXIS} width={40} />
-                      <Tooltip contentStyle={tip}
+                      <Tooltip
+                        contentStyle={tip}
                         formatter={(v: any, name: any, item: any) => {
                           const id = String(item?.dataKey || "").slice(1);
                           const loss = item?.payload?.["l" + id];
                           return [v == null ? "不通" : `${v} ms${loss ? `(丢包 ${loss}%)` : ""}`, name];
-                        }} />
+                        }}
+                      />
                       <Legend wrapperStyle={{ fontSize: 11 }} />
                       {probeTargets.map((t: any, i: number) => (
-                        <Line key={t.id} type="monotone" dataKey={"a" + t.id} name={t.name}
+                        <Line
+                          key={t.id}
+                          type="monotone"
+                          dataKey={"a" + t.id}
+                          name={t.name}
                           stroke={LINE_COLORS[i % LINE_COLORS.length]}
                           strokeDasharray={isPixel ? PIXEL_DASHES[i % PIXEL_DASHES.length] : undefined}
-                          dot={false} connectNulls={false} isAnimationActive={false} />
+                          dot={false}
+                          connectNulls={false}
+                          isAnimationActive={false}
+                        />
                       ))}
                     </LineChart>
                   </ResponsiveContainer>

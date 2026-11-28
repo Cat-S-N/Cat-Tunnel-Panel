@@ -567,6 +567,7 @@ export default function ConfigPage() {
 
   // 保存配置
   const handleSave = async () => {
+    if (saving) return;
     for (const item of CONFIG_ITEMS) {
       if (!shouldShowItem(item)) continue;
       const { error } = validateConfigValue(item.key, configs[item.key]);
@@ -629,6 +630,13 @@ export default function ConfigPage() {
 
   // 测试告警推送
   const handleTestAlert = async () => {
+    if (testingAlert || saving) return;
+    const hasTg = Boolean((configs.tg_bot_token || '').trim() && (configs.tg_chat_id || '').trim());
+    const hasWebhook = Boolean((configs.webhook_url || '').trim());
+    if (!hasTg && !hasWebhook) {
+      toast.error('请先填写完整的 Telegram（Bot Token + Chat ID）或自定义 Webhook 地址');
+      return;
+    }
     setTestingAlert(true);
     try {
       const response = await testAlertNotify({
@@ -1068,28 +1076,29 @@ export default function ConfigPage() {
 
         <Card className="shadow-md">
           <CardHeader className="pb-4">
-            <div className="flex justify-between items-center w-full">
-              <div>
+            <div className="flex flex-wrap justify-between items-center gap-3 w-full">
+              <div className="min-w-0">
                 <h2 className="text-xl font-semibold">基本设置</h2>
                 <p className="text-sm text-gray-600 dark:text-gray-400">
                   配置网站的基本信息，这些设置会影响网站的显示效果
                 </p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
                 <Button
                   variant="flat"
                   color="secondary"
                   onPress={handleTestAlert}
                   isLoading={testingAlert}
+                  isDisabled={testingAlert || saving}
                 >
                   {testingAlert ? '发送中...' : '🔔 测试告警'}
                 </Button>
                 <Button
                   color="primary"
                   startContent={<SaveIcon className="w-4 h-4" />}
-                  onClick={handleSave}
+                  onPress={handleSave}
                   isLoading={saving}
-                  disabled={!hasChanges}
+                  isDisabled={!hasChanges || saving}
                 >
                   {saving ? '保存中...' : '保存配置'}
                 </Button>
