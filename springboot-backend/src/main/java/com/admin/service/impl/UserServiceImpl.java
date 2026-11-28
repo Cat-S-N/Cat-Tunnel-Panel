@@ -142,6 +142,9 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
     @Resource
     private ImageCaptchaApplication application;
 
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    private com.admin.common.utils.AuditLogStore auditLogStore;
+
     // ========== 公共接口实现 ==========
 
     /**
@@ -185,12 +188,16 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                 .build());
     }
 
-    private static final long REGISTER_RATE_WINDOW_MS = 10 * 60 * 1000L;
-    private static final int REGISTER_RATE_MAX_ATTEMPTS = 5;
+    static final long REGISTER_RATE_WINDOW_MS = 10 * 60 * 1000L;
+    static final int REGISTER_RATE_MAX_ATTEMPTS = 5;
+    static final int REGISTER_RATE_MAX_IP_ENTRIES = 4096;
+    private static final int REGISTER_RATE_CLEANUP_BATCH = 64;
     private static final java.util.regex.Pattern REGISTER_USERNAME_PATTERN =
             java.util.regex.Pattern.compile("^[a-zA-Z0-9_-]{3,32}$");
-    private final java.util.concurrent.ConcurrentHashMap<String, java.util.Deque<Long>> registerAttemptsByIp =
-            new java.util.concurrent.ConcurrentHashMap<>();
+    private final Object registerRateLock = new Object();
+    private final java.util.LinkedHashMap<String, java.util.Deque<Long>> registerAttemptsByIp =
+            new java.util.LinkedHashMap<>(16, 0.75f, true);
+    private int registerRateOpCount = 0;
 
     @Override
     public R register(RegisterDto registerDto) {
@@ -198,7 +205,7 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
             return R.err("注册参数不能为空");
         }
 
-        if (!"true".equals(getConfigValue("register_enabled"))) {
+        if (!"true".equals(getConfigValue(com.admin.common.utils.RegisterConfigRule.KEY_REGISTER_ENABLED))) {
             return R.err("当前未开放用户注册");
         }
 
@@ -215,6 +222,20 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
                     .secondaryVerification(registerDto.getCaptchaId());
             if (!valid) {
                 return R.err("验证码校验失败");
+            }
+        }
+
+        // 邀请码强校验（置于用户名唯一性查询之前，防止无邀请码时枚举系统已有用户名）
+        java.util.Set<String> validInviteCodes = com.admin.common.utils.RegisterConfigRule.parseInviteCodes(
+                getConfigValue(com.admin.common.utils.RegisterConfigRule.KEY_REGISTER_INVITE_CODE));
+        boolean inviteRequired = !validInviteCodes.isEmpty();
+        if (inviteRequired) {
+            String submittedInvite = registerDto.getInviteCode() == null ? "" : registerDto.getInviteCode().trim();
+            if (submittedInvite.isEmpty()) {
+                return R.err("请输入邀请码");
+            }
+            if (!validInviteCodes.contains(submittedInvite)) {
+                return R.err("邀请码无效");
             }
         }
 
@@ -239,13 +260,19 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
 
         long now = System.currentTimeMillis();
-        long defaultFlow = parseNonNegativeLongConfig("register_default_flow", 10L);
-        int defaultNum = (int) parseNonNegativeLongConfig("register_default_num", 5L);
-        long defaultExpDays = parsePositiveLongConfig("register_default_exp_days", 30L);
-        long defaultFlowResetTime = parseNonNegativeLongConfig("register_default_flow_reset_time", 1L);
-        if (defaultFlowResetTime > 31L) {
-            defaultFlowResetTime = 1L;
-        }
+        long defaultFlow = parseBoundedLongConfig(
+                com.admin.common.utils.RegisterConfigRule.KEY_DEFAULT_FLOW, 10L,
+                0L, com.admin.common.utils.RegisterConfigRule.MAX_DEFAULT_FLOW_GB);
+        int defaultNum = (int) parseBoundedLongConfig(
+                com.admin.common.utils.RegisterConfigRule.KEY_DEFAULT_NUM, 5L,
+                0L, com.admin.common.utils.RegisterConfigRule.MAX_DEFAULT_NUM);
+        long defaultExpDays = parseBoundedLongConfig(
+                com.admin.common.utils.RegisterConfigRule.KEY_DEFAULT_EXP_DAYS, 30L,
+                com.admin.common.utils.RegisterConfigRule.MIN_DEFAULT_EXP_DAYS,
+                com.admin.common.utils.RegisterConfigRule.MAX_DEFAULT_EXP_DAYS);
+        long defaultFlowResetTime = parseBoundedLongConfig(
+                com.admin.common.utils.RegisterConfigRule.KEY_DEFAULT_FLOW_RESET_TIME, 1L,
+                0L, com.admin.common.utils.RegisterConfigRule.MAX_FLOW_RESET_DAY);
 
         User user = new User();
         user.setUser(username);
@@ -262,35 +289,98 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         user.setCreatedTime(now);
         user.setUpdatedTime(now);
 
-        return this.save(user) ? R.ok("注册成功") : R.err(ERROR_CREATE_FAILED);
+        boolean saved;
+        try {
+            saved = this.save(user);
+        } catch (org.springframework.dao.DuplicateKeyException e) {
+            return R.err(ERROR_USERNAME_EXISTS);
+        }
+        if (!saved) {
+            return R.err(ERROR_CREATE_FAILED);
+        }
+
+        if (auditLogStore != null) {
+            try {
+                auditLogStore.recordUserRegister(user.getId(), username, clientIp, inviteRequired);
+            } catch (Exception e) {
+                log.debug("记录注册审计日志异常: {}", e.getMessage());
+            }
+        }
+        return R.ok("注册成功");
     }
 
-    private String resolveClientIp() {
+    String resolveClientIp() {
         try {
             javax.servlet.http.HttpServletRequest request =
                     com.admin.common.utils.HttpContextUtils.getHttpServletRequest();
             if (request == null) {
                 return "unknown";
             }
-            String xff = request.getHeader("X-Forwarded-For");
-            if (StringUtils.isNotBlank(xff)) {
-                return xff.split(",")[0].trim();
+            String[] headers = {"X-Forwarded-For", "X-Real-IP", "CF-Connecting-IP"};
+            for (String header : headers) {
+                String val = extractFirstValidIp(request.getHeader(header));
+                if (!val.isEmpty()) {
+                    return val;
+                }
             }
-            String remoteAddr = request.getRemoteAddr();
-            return StringUtils.isNotBlank(remoteAddr) ? remoteAddr : "unknown";
+            String remoteAddr = extractFirstValidIp(request.getRemoteAddr());
+            return !remoteAddr.isEmpty() ? remoteAddr : "unknown";
         } catch (Exception e) {
             return "unknown";
         }
     }
 
+    private static String extractFirstValidIp(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String candidate = raw.trim();
+        if (candidate.isEmpty() || "unknown".equalsIgnoreCase(candidate)) {
+            return "";
+        }
+        int commaIdx = candidate.indexOf(',');
+        if (commaIdx >= 0) {
+            candidate = candidate.substring(0, commaIdx).trim();
+        }
+        if (candidate.isEmpty() || "unknown".equalsIgnoreCase(candidate)) {
+            return "";
+        }
+        return candidate.length() <= 64 ? candidate : candidate.substring(0, 64);
+    }
+
     boolean isRegisterRateLimited(String ip, long nowMs) {
-        String key = StringUtils.isNotBlank(ip) ? ip : "unknown";
-        java.util.Deque<Long> deque = registerAttemptsByIp.computeIfAbsent(
-                key, k -> new java.util.ArrayDeque<>());
-        synchronized (deque) {
-            while (!deque.isEmpty() && nowMs - deque.peekFirst() > REGISTER_RATE_WINDOW_MS) {
-                deque.pollFirst();
+        return isRegisterRateLimited(ip, nowMs, REGISTER_RATE_MAX_IP_ENTRIES);
+    }
+
+    boolean isRegisterRateLimited(String ip, long nowMs, int maxIpEntries) {
+        String key = extractFirstValidIp(ip);
+        if (key.isEmpty()) {
+            key = "unknown";
+        }
+        int safeCap = Math.max(1, maxIpEntries);
+        synchronized (registerRateLock) {
+            registerRateOpCount++;
+            if (registerRateOpCount >= REGISTER_RATE_CLEANUP_BATCH || registerAttemptsByIp.size() >= safeCap) {
+                registerRateOpCount = 0;
+                evictExpiredRegisterAttemptsLocked(nowMs);
             }
+
+            java.util.Deque<Long> deque = registerAttemptsByIp.get(key);
+            if (deque != null) {
+                pruneExpiredTimestamps(deque, nowMs);
+            } else {
+                while (registerAttemptsByIp.size() >= safeCap && !registerAttemptsByIp.isEmpty()) {
+                    java.util.Iterator<java.util.Map.Entry<String, java.util.Deque<Long>>> it =
+                            registerAttemptsByIp.entrySet().iterator();
+                    if (it.hasNext()) {
+                        it.next();
+                        it.remove();
+                    }
+                }
+                deque = new java.util.ArrayDeque<>(REGISTER_RATE_MAX_ATTEMPTS);
+                registerAttemptsByIp.put(key, deque);
+            }
+
             if (deque.size() >= REGISTER_RATE_MAX_ATTEMPTS) {
                 return true;
             }
@@ -299,8 +389,35 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         }
     }
 
+    private void evictExpiredRegisterAttemptsLocked(long nowMs) {
+        java.util.Iterator<java.util.Map.Entry<String, java.util.Deque<Long>>> it =
+                registerAttemptsByIp.entrySet().iterator();
+        while (it.hasNext()) {
+            java.util.Deque<Long> q = it.next().getValue();
+            pruneExpiredTimestamps(q, nowMs);
+            if (q.isEmpty()) {
+                it.remove();
+            }
+        }
+    }
+
+    private static void pruneExpiredTimestamps(java.util.Deque<Long> deque, long nowMs) {
+        while (!deque.isEmpty() && nowMs - deque.peekFirst() > REGISTER_RATE_WINDOW_MS) {
+            deque.pollFirst();
+        }
+    }
+
+    int getRegisterRateTrackedIpCount() {
+        synchronized (registerRateLock) {
+            return registerAttemptsByIp.size();
+        }
+    }
+
     void clearRegisterRateLimitForTest() {
-        registerAttemptsByIp.clear();
+        synchronized (registerRateLock) {
+            registerAttemptsByIp.clear();
+            registerRateOpCount = 0;
+        }
     }
 
     String getConfigValue(String key) {
@@ -308,27 +425,17 @@ public class UserServiceImpl extends ServiceImpl<UserMapper, User> implements Us
         return cfg == null ? null : cfg.getValue();
     }
 
-    private long parseNonNegativeLongConfig(String key, long fallback) {
+    private long parseBoundedLongConfig(String key, long fallback, long minInclusive, long maxInclusive) {
         String raw = getConfigValue(key);
         if (StringUtils.isBlank(raw)) {
             return fallback;
         }
         try {
             long val = Long.parseLong(raw.trim());
-            return val >= 0 ? val : fallback;
-        } catch (NumberFormatException e) {
-            return fallback;
-        }
-    }
-
-    private long parsePositiveLongConfig(String key, long fallback) {
-        String raw = getConfigValue(key);
-        if (StringUtils.isBlank(raw)) {
-            return fallback;
-        }
-        try {
-            long val = Long.parseLong(raw.trim());
-            return val > 0 ? val : fallback;
+            if (val < minInclusive || val > maxInclusive) {
+                return fallback;
+            }
+            return val;
         } catch (NumberFormatException e) {
             return fallback;
         }

@@ -37,16 +37,44 @@ class AuditLogStoreTest {
 
     @Test
     void masksSensitiveJsonFieldsAndTruncates() {
-        String raw = "{\"tg_bot_token\":\"123:secret\",\"app_name\":\"Cat Tunnel\"}";
+        String raw = "{\"tg_bot_token\":\"123:secret\",\"register_invite_code\":\"VIP_ONLY_888\",\"inviteCode\":\"VIP_ONLY_888\",\"confirmPassword\":\"pw123\",\"app_name\":\"Cat Tunnel\"}";
         String masked = AuditLogStore.maskSensitiveParams(raw);
         assertFalse(masked.contains("123:secret"));
+        assertFalse(masked.contains("VIP_ONLY_888"));
+        assertFalse(masked.contains("pw123"));
         assertTrue(masked.contains("\"tg_bot_token\":\"***\""));
+        assertTrue(masked.contains("\"register_invite_code\":\"***\""));
+        assertTrue(masked.contains("\"inviteCode\":\"***\""));
         assertTrue(masked.contains("Cat Tunnel"));
 
         String longInput = "a".repeat(1200);
         String cut = AuditLogStore.maskSensitiveParams(longInput);
         assertTrue(cut.endsWith("..."));
         assertEquals(953, cut.length());
+    }
+
+    @Test
+    void writeUserRegisterRow_persistsUsernameAndIpWithoutSecrets() {
+        JdbcTemplate jdbc = mock(JdbcTemplate.class);
+        AuditLogStore store = new AuditLogStore();
+        ReflectionTestUtils.setField(store, "jdbc", jdbc);
+        ReflectionTestUtils.setField(store, "available", true);
+
+        long now = 1700000000000L;
+        store.writeUserRegisterRow(18L, "new_rider", "203.0.113.42", "{\"username\":\"new_rider\",\"inviteUsed\":true}", now);
+
+        verify(jdbc).update(
+                contains("INSERT INTO `audit_log`"),
+                eq(18L),
+                eq("new_rider"),
+                eq("用户"),
+                eq("用户自助注册"),
+                eq("UserController.register"),
+                eq("203.0.113.42"),
+                eq("{\"username\":\"new_rider\",\"inviteUsed\":true}"),
+                eq(0),
+                eq(now)
+        );
     }
 
     @Test

@@ -213,4 +213,69 @@ class ViteConfigServiceImplTest {
         assertTrue(res.getMsg().contains("配置更新失败"));
         assertTrue(res.getMsg().contains("batch DB failure"));
     }
+
+    @Test
+    void getConfigByName_registerInviteRequired_returnsBooleanFlagWithoutLeakingCode() {
+        // 1. 未配置 -> "false"
+        doReturn(null).when(viteConfigService).getOne(any(QueryWrapper.class));
+        R r1 = viteConfigService.getConfigByName("register_invite_required");
+        assertEquals(0, r1.getCode());
+        ViteConfig c1 = (ViteConfig) r1.getData();
+        assertEquals("register_invite_required", c1.getName());
+        assertEquals("false", c1.getValue());
+
+        // 2. 仅空白与逗号 -> "false"
+        doReturn(sampleConfig(2L, "register_invite_code", " ,  , \t ")).when(viteConfigService).getOne(any(QueryWrapper.class));
+        R r2 = viteConfigService.getConfigByName("register_invite_required");
+        assertEquals(0, r2.getCode());
+        assertEquals("false", ((ViteConfig) r2.getData()).getValue());
+
+        // 3. 含有效邀请码 -> "true"，且对象中绝不携带邀请码原文
+        doReturn(sampleConfig(3L, "register_invite_code", " CAT_SECRET_01 , CAT_SECRET_02 "))
+                .when(viteConfigService).getOne(any(QueryWrapper.class));
+        R r3 = viteConfigService.getConfigByName("register_invite_required");
+        assertEquals(0, r3.getCode());
+        ViteConfig c3 = (ViteConfig) r3.getData();
+        assertEquals("true", c3.getValue());
+        assertFalse(String.valueOf(c3).contains("CAT_SECRET"));
+    }
+
+    @Test
+    void updateConfigs_validatesRegisterQuotaRangesAndNormalizesInviteCodes() {
+        // 中文逗号拦截
+        Map<String, String> cnComma = Collections.singletonMap("register_invite_code", "CODE1，CODE2");
+        R badComma = viteConfigService.updateConfigs(cnComma);
+        assertNotEquals(0, badComma.getCode());
+        assertTrue(badComma.getMsg().contains("英文半角逗号"));
+
+        // 非法重置日拦截
+        Map<String, String> badReset = Collections.singletonMap("register_default_flow_reset_time", "32");
+        assertNotEquals(0, viteConfigService.updateConfigs(badReset).getCode());
+
+        // 非法有效期拦截
+        Map<String, String> badExp = Collections.singletonMap("register_default_exp_days", "0");
+        assertNotEquals(0, viteConfigService.updateConfigs(badExp).getCode());
+
+        // 合法配置并规范化邀请码（去空项、去空白）
+        doReturn(null).when(viteConfigService).getOne(any(QueryWrapper.class));
+        doReturn(true).when(viteConfigService).save(any(ViteConfig.class));
+
+        Map<String, String> validBatch = new LinkedHashMap<>();
+        validBatch.put("register_invite_code", " VIP_1 , , VIP_2 , ");
+        validBatch.put("register_default_flow", "100");
+        validBatch.put("register_default_num", "10");
+        validBatch.put("register_default_exp_days", "365");
+        validBatch.put("register_default_flow_reset_time", "0");
+
+        R ok = viteConfigService.updateConfigs(validBatch);
+        assertEquals(0, ok.getCode());
+
+        ArgumentCaptor<ViteConfig> captor = ArgumentCaptor.forClass(ViteConfig.class);
+        verify(viteConfigService, times(5)).save(captor.capture());
+        ViteConfig savedInvite = captor.getAllValues().stream()
+                .filter(c -> "register_invite_code".equals(c.getName()))
+                .findFirst()
+                .orElseThrow(AssertionError::new);
+        assertEquals("VIP_1,VIP_2", savedInvite.getValue());
+    }
 }

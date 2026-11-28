@@ -4,6 +4,7 @@ import com.admin.entity.ViteConfig;
 import com.admin.mapper.ViteConfigMapper;
 import com.admin.service.ViteConfigService;
 import com.admin.common.lang.R;
+import com.admin.common.utils.RegisterConfigRule;
 import com.admin.common.utils.SubUrlRule;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
@@ -67,6 +68,17 @@ public class ViteConfigServiceImpl extends ServiceImpl<ViteConfigMapper, ViteCon
             return R.err(ERROR_CONFIG_NAME_REQUIRED);
         }
 
+        // 计算字段：仅向前端暴露是否要求邀请码("true"/"false")，绝不返回 register_invite_code 原文
+        if (RegisterConfigRule.KEY_REGISTER_INVITE_REQUIRED.equals(name)) {
+            ViteConfig rawInvite = this.getOne(
+                    new QueryWrapper<ViteConfig>().eq("name", RegisterConfigRule.KEY_REGISTER_INVITE_CODE));
+            boolean required = RegisterConfigRule.isInviteRequired(rawInvite == null ? null : rawInvite.getValue());
+            ViteConfig computed = new ViteConfig();
+            computed.setName(RegisterConfigRule.KEY_REGISTER_INVITE_REQUIRED);
+            computed.setValue(required ? "true" : "false");
+            return R.ok(computed);
+        }
+
         QueryWrapper<ViteConfig> queryWrapper = new QueryWrapper<>();
         queryWrapper.eq("name", name);
         ViteConfig config = this.getOne(queryWrapper);
@@ -103,6 +115,17 @@ public class ViteConfigServiceImpl extends ServiceImpl<ViteConfigMapper, ViteCon
             }
         }
 
+        for (Map.Entry<String, String> entry : configMap.entrySet()) {
+            String name = entry.getKey();
+            if (!StringUtils.hasText(name)) {
+                continue;
+            }
+            String why = RegisterConfigRule.checkConfigEntry(name, entry.getValue());
+            if (why != null) {
+                return R.err(why);
+            }
+        }
+
         try {
             for (Map.Entry<String, String> entry : configMap.entrySet()) {
                 String name = entry.getKey();
@@ -113,9 +136,11 @@ public class ViteConfigServiceImpl extends ServiceImpl<ViteConfigMapper, ViteCon
                 }
                 if (SubUrlRule.KEY.equals(name)) {
                     value = subUrl;
+                } else if (RegisterConfigRule.KEY_REGISTER_INVITE_CODE.equals(name)) {
+                    value = RegisterConfigRule.normalizeInviteCodes(value);
                 }
 
-                updateOrCreateConfig(name, value);
+                updateOrCreateConfig(name, value == null ? "" : value);
             }
             return R.ok(SUCCESS_UPDATE_MSG);
         } catch (Exception e) {
@@ -136,7 +161,8 @@ public class ViteConfigServiceImpl extends ServiceImpl<ViteConfigMapper, ViteCon
         if (!StringUtils.hasText(name)) {
             return R.err(ERROR_CONFIG_NAME_REQUIRED);
         }
-        if (!StringUtils.hasText(value)) {
+        boolean allowEmpty = RegisterConfigRule.KEY_REGISTER_INVITE_CODE.equals(name);
+        if (!allowEmpty && !StringUtils.hasText(value)) {
             return R.err(ERROR_CONFIG_VALUE_REQUIRED);
         }
         if (SubUrlRule.KEY.equals(name)) {
@@ -145,10 +171,18 @@ public class ViteConfigServiceImpl extends ServiceImpl<ViteConfigMapper, ViteCon
             if (why != null) {
                 return R.err(why);
             }
+        } else {
+            String why = RegisterConfigRule.checkConfigEntry(name, value);
+            if (why != null) {
+                return R.err(why);
+            }
+            if (RegisterConfigRule.KEY_REGISTER_INVITE_CODE.equals(name)) {
+                value = RegisterConfigRule.normalizeInviteCodes(value);
+            }
         }
 
         try {
-            updateOrCreateConfig(name, value);
+            updateOrCreateConfig(name, value == null ? "" : value);
             return R.ok(SUCCESS_UPDATE_MSG);
         } catch (Exception e) {
             return R.err(ERROR_UPDATE_MSG + ": " + e.getMessage());

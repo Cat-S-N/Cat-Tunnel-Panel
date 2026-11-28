@@ -34,7 +34,7 @@ public class AuditLogStore {
     private static final long RETRY_INTERVAL_MS = 30_000L;
 
     private static final Pattern EXTRA_SECRET_PATTERN = Pattern.compile(
-            "(?i)\"(tg_bot_token|webhook_url|token|secret|pwd|password|newPassword|currentPassword)\"\\s*:\\s*\"[^\"]*\"");
+            "(?i)\"(tg_bot_token|webhook_url|token|secret|pwd|password|newPassword|currentPassword|confirmPassword|inviteCode|invite_code|register_invite_code)\"\\s*:\\s*\"[^\"]*\"");
 
     private static final Pattern LOGIN_USER_PATTERN = Pattern.compile(
             "(?i)\"(?:username|user)\"\\s*:\\s*\"([^\"\\\\]{1,64})\"");
@@ -285,6 +285,45 @@ public class AuditLogStore {
                 log.debug("写入操作审计日志失败: {}", e.getMessage());
             }
         });
+    }
+
+    /**
+     * 记录用户自助注册成功的操作审计日志（仅记录新用户ID、用户名、来源IP与是否启用邀请码，严禁接收或记录明文密码/邀请码）
+     */
+    public void recordUserRegister(Long userId, String username, String ip, boolean inviteUsed) {
+        if (jdbc == null) {
+            return;
+        }
+        String cleanUser = SubAccessStore.safeTruncate(username == null || username.trim().isEmpty() ? "匿名" : username.trim(), 64);
+        String cleanIp = SubAccessStore.firstHeaderIp(ip);
+        if (cleanIp.isEmpty()) {
+            cleanIp = SubAccessStore.safeTruncate(ip == null || ip.trim().isEmpty() ? "unknown" : ip, 64);
+        }
+        String escapedUser = cleanUser.replace("\\", "\\\\").replace("\"", "\\\"");
+        String safeParams = "{\"username\":\"" + escapedUser + "\",\"inviteUsed\":" + inviteUsed + "}";
+        long now = System.currentTimeMillis();
+        final String finalIp = SubAccessStore.safeTruncate(cleanIp, 64);
+
+        executor.execute(() -> writeUserRegisterRow(userId, cleanUser, finalIp, safeParams, now));
+    }
+
+    void writeUserRegisterRow(Long userId, String cleanUser, String finalIp, String safeParams, long now) {
+        if (!ensureTable()) {
+            return;
+        }
+        try {
+            jdbc.update(
+                    "INSERT INTO `audit_log` (`user_id`, `username`, `role_label`, `action`, `method`, `ip`, `params`, `result_code`, `created_time`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    userId, cleanUser, "用户", "用户自助注册", "UserController.register", finalIp, maskSensitiveParams(safeParams), 0, now);
+            if (insertCounter.incrementAndGet() % 300 == 0) {
+                jdbc.update("DELETE FROM `audit_log` WHERE `created_time` < ?", now - RETENTION_MS);
+            }
+        } catch (Exception e) {
+            if (e.getMessage() != null && e.getMessage().contains("doesn't exist")) {
+                available = false;
+            }
+            log.debug("写入注册审计日志失败: {}", e.getMessage());
+        }
     }
 
     public Map<String, Object> query(int page, int size, String keyword, Long userId) {

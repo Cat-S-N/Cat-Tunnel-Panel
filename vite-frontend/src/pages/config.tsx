@@ -60,10 +60,35 @@ interface ValidationResult {
   hint?: string;
 }
 
-// 关键配置项格式校验
+const parseValidInviteCodes = (raw?: string): string[] => {
+  if (!raw) return [];
+  return raw
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+};
+
+// 关键配置项格式校验与默认值/范围提示
 const validateConfigValue = (key: string, rawValue?: string): ValidationResult => {
   const value = (rawValue || '').trim();
-  if (!value) return {};
+  if (!value) {
+    if (key === 'register_invite_code') {
+      return { hint: '当前未设置邀请码：开放注册期间任何访客均可直接注册' };
+    }
+    if (key === 'register_default_flow') {
+      return { hint: '留空将使用系统默认值：10 GB（合法范围 0 ~ 1000000）' };
+    }
+    if (key === 'register_default_num') {
+      return { hint: '留空将使用系统默认值：5 条（合法范围 0 ~ 10000）' };
+    }
+    if (key === 'register_default_exp_days') {
+      return { hint: '留空将使用系统默认值：30 天（合法范围 1 ~ 36500）' };
+    }
+    if (key === 'register_default_flow_reset_time') {
+      return { hint: '留空将使用系统默认值：每月 1 日重置（合法范围 0 ~ 31，0 表示不重置）' };
+    }
+    return {};
+  }
 
   if (key === 'sub_url') {
     if (!/^https?:\/\//i.test(value)) {
@@ -86,19 +111,44 @@ const validateConfigValue = (key: string, rawValue?: string): ValidationResult =
     if (!value.includes(':')) {
       return { hint: '建议使用 IP:PORT 格式（例如 1.2.3.4:6365）' };
     }
-  } else if (key === 'register_default_flow' || key === 'register_default_num') {
-    if (!/^\d+$/.test(value)) {
-      return { error: '请输入非负整数' };
+  } else if (key === 'register_invite_code') {
+    if (value.includes('，')) {
+      return { error: '检测到中文逗号（，），多个邀请码请改用英文半角逗号 (,) 分隔' };
     }
+    if (value.length > 512) {
+      return { error: '邀请码配置总长度不能超过 512 个字符' };
+    }
+    const validCodes = parseValidInviteCodes(value);
+    if (validCodes.length === 0) {
+      return { error: '未解析到有效邀请码，若不启用请直接清空输入框' };
+    }
+    return { hint: `已识别 ${validCodes.length} 个有效邀请码，保存后登录页将要求填写邀请码` };
+  } else if (key === 'register_default_flow') {
+    const n = Number(value);
+    if (!/^\d+$/.test(value) || n < 0 || n > 1000000) {
+      return { error: '请输入 0 到 1000000 之间的整数（单位：GB）' };
+    }
+    return { hint: n === 0 ? '设置为 0 GB：新注册账号需管理员分配流量后方可使用' : `新注册账号初始可用流量：${n} GB` };
+  } else if (key === 'register_default_num') {
+    const n = Number(value);
+    if (!/^\d+$/.test(value) || n < 0 || n > 10000) {
+      return { error: '请输入 0 到 10000 之间的整数' };
+    }
+    return { hint: `新注册账号最多可创建 ${n} 条转发规则` };
   } else if (key === 'register_default_exp_days') {
-    if (!/^\d+$/.test(value) || Number(value) <= 0) {
-      return { error: '请输入大于 0 的整数天数' };
+    const n = Number(value);
+    if (!/^\d+$/.test(value) || n < 1 || n > 36500) {
+      return { error: '请输入 1 到 36500 之间的整数天数' };
     }
+    return { hint: `新注册账号自注册时刻起有效期为 ${n} 天` };
   } else if (key === 'register_default_flow_reset_time') {
     const n = Number(value);
     if (!/^\d+$/.test(value) || n < 0 || n > 31) {
-      return { error: '请输入 0 到 31 之间的整数（0 表示不重置）' };
+      return { error: '请输入 0 到 31 之间的整数（0 表示不按月自动重置）' };
     }
+    return {
+      hint: n === 0 ? '设置为 0：流量一次性有效，不按月自动清零' : `每月 ${n} 日自动重置已用流量`,
+    };
   }
 
   return {};
@@ -214,14 +264,25 @@ const CONFIG_ITEMS: ConfigItem[] = [
   {
     key: 'register_enabled',
     label: '开放用户注册',
-    description: '开启后登录页将显示「注册账号」入口，允许新用户自助注册',
+    description: '开启后登录页将显示「没有账号？立即注册」入口；自助注册账号角色固定为普通用户，受单 IP 频率限制与审计日志保护',
     type: 'switch'
+  },
+  {
+    key: 'register_invite_code',
+    label: '注册邀请码（可选，多个用英文逗号分隔，留空不启用）',
+    placeholder: '留空表示无需邀请码；多个示例：VIP2026,CAT888',
+    description: '可选。配置后新用户注册时必须填写匹配的邀请码（多个邀请码用英文逗号 , 分隔，自动忽略首尾空格）；邀请码仅在服务端校验，公开接口仅返回布尔状态绝不泄露原文',
+    type: 'input',
+    sensitive: true,
+    copyable: true,
+    dependsOn: 'register_enabled',
+    dependsValue: 'true'
   },
   {
     key: 'register_default_flow',
     label: '新用户默认流量 (GB)',
-    placeholder: '10',
-    description: '自助注册用户的初始可用流量（单位：GB，默认 10）',
+    placeholder: '默认 10（范围 0 ~ 1000000）',
+    description: '自助注册账号的初始总流量配额（单位：GB，合法范围 0 ~ 1000000，留空默认 10）',
     type: 'input',
     dependsOn: 'register_enabled',
     dependsValue: 'true'
@@ -229,8 +290,8 @@ const CONFIG_ITEMS: ConfigItem[] = [
   {
     key: 'register_default_num',
     label: '新用户默认转发数上限',
-    placeholder: '5',
-    description: '自助注册用户可创建的转发规则数量上限（默认 5）',
+    placeholder: '默认 5（范围 0 ~ 10000）',
+    description: '自助注册账号可创建的端口转发规则上限（合法范围 0 ~ 10000，留空默认 5）',
     type: 'input',
     dependsOn: 'register_enabled',
     dependsValue: 'true'
@@ -238,8 +299,8 @@ const CONFIG_ITEMS: ConfigItem[] = [
   {
     key: 'register_default_exp_days',
     label: '新用户默认有效期 (天)',
-    placeholder: '30',
-    description: '自助注册用户的初始账号有效天数（默认 30 天）',
+    placeholder: '默认 30（范围 1 ~ 36500）',
+    description: '自助注册账号自创建时起的有效天数（合法范围 1 ~ 36500 天，留空默认 30 天）',
     type: 'input',
     dependsOn: 'register_enabled',
     dependsValue: 'true'
@@ -247,19 +308,23 @@ const CONFIG_ITEMS: ConfigItem[] = [
   {
     key: 'register_default_flow_reset_time',
     label: '新用户默认流量重置日',
-    placeholder: '1',
-    description: '每月流量重置日（1-31，填 0 表示不自动重置，默认 1）',
+    placeholder: '默认 1（范围 0 ~ 31，0 表示不重置）',
+    description: '每月自动清零已用流量的日期（合法范围 0 ~ 31：填 1~31 为每月对应日重置，填 0 表示不自动重置，留空默认 1）',
     type: 'input',
     dependsOn: 'register_enabled',
     dependsValue: 'true'
   }
 ];
 
-// 初始化时从缓存读取配置，避免闪烁
+// 初始化时从缓存读取非敏感配置，避免闪烁
 const getInitialConfigs = (): Record<string, string> => {
   if (typeof window === 'undefined') return {};
   
-  const configKeys = ['app_name', 'captcha_enabled', 'captcha_type', 'ip', 'sub_url', 'alert_enabled', 'tg_bot_token', 'tg_chat_id', 'webhook_url'];
+  const configKeys = [
+    'app_name', 'captcha_enabled', 'captcha_type', 'ip', 'sub_url', 'alert_enabled', 'tg_chat_id',
+    'register_enabled', 'register_default_flow', 'register_default_num',
+    'register_default_exp_days', 'register_default_flow_reset_time'
+  ];
   const initialConfigs: Record<string, string> = {};
   
   try {
@@ -452,12 +517,15 @@ export default function ConfigPage() {
           key => configs[key] !== originalConfigs[key]
         );
         
-        // 订阅地址后端存的是规范化后的值(去首尾空白、去末尾 /,和 SubUrlRule.normalize 一致),输入框跟着显示存进去的样子
+        // 订阅地址与注册邀请码后端存的是规范化后的值,输入框跟着显示存进去的样子
         const saved = { ...configs };
         if (typeof saved.sub_url === 'string') {
           saved.sub_url = saved.sub_url.replace(/^[\x00-\x20]+|[\x00-\x20]+$/g, '').replace(/\/+$/, '');
-          setConfigs(saved);
         }
+        if (typeof saved.register_invite_code === 'string') {
+          saved.register_invite_code = parseValidInviteCodes(saved.register_invite_code).join(',');
+        }
+        setConfigs(saved);
         setOriginalConfigs(saved);
         setHasChanges(false);
         
@@ -724,6 +792,27 @@ export default function ConfigPage() {
 
               return (
                 <div key={item.key} className="space-y-3">
+                  {item.key === 'register_enabled' && (
+                    <div className="rounded-md border border-default-200 bg-default-100/70 px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="text-sm font-semibold text-foreground">用户自助注册与初始配额</div>
+                        <div className="text-xs text-default-500">
+                          管理登录页自助注册入口、受邀注册校验及新账号默认套餐额度
+                        </div>
+                      </div>
+                      <Chip
+                        size="sm"
+                        variant="flat"
+                        color={configs.register_enabled === 'true' ? 'primary' : 'default'}
+                      >
+                        {configs.register_enabled === 'true'
+                          ? (parseValidInviteCodes(configs.register_invite_code).length > 0
+                            ? `已开放 · 邀请码模式 (${parseValidInviteCodes(configs.register_invite_code).length}个)`
+                            : '已开放 · 公开注册')
+                          : '未开放'}
+                      </Chip>
+                    </div>
+                  )}
                   <div className="flex flex-col gap-1">
                     <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
                       {item.label}

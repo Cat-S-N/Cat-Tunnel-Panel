@@ -11,6 +11,7 @@ export interface RegisterData {
   username: string;
   password: string;
   confirmPassword: string;
+  inviteCode?: string;
   captchaId: string;
 }
 

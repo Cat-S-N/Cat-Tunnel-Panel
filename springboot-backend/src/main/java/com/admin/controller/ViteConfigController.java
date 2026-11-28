@@ -31,8 +31,11 @@ public class ViteConfigController extends BaseController {
      * 【为什么要白名单】装机时 vite_config.ip 存的是「面板公网 IP:6365」,原来 /get 免登录、什么键都给,
      * /list 车友登录后也能读 —— 任何人一个请求就能拿到面板的真实 IP(2026-11-01 调研查出)。
      * 只有网页「网站配置」页(管理员)读全部配置。
+     * 安全红线:register_invite_code 绝不能加入 PUBLIC_KEYS!仅公开计算字段 register_invite_required("true"/"false")。
      */
-    static final Set<String> PUBLIC_KEYS = new HashSet<>(Arrays.asList("app_name", "captcha_enabled", "captcha_type", "sub_url", "register_enabled"));
+    static final Set<String> PUBLIC_KEYS = new HashSet<>(Arrays.asList(
+            "app_name", "captcha_enabled", "captcha_type", "sub_url",
+            "register_enabled", "register_invite_required"));
 
     /**
      * 获取所有网站配置:只给管理员(网页里只有「网站配置」页在用)

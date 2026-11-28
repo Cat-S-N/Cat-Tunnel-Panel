@@ -85,6 +85,9 @@ export const getCachedConfig = async (key: string): Promise<string | null> => {
   return null;
 };
 
+// 敏感配置项不写入 localStorage，防止共享终端或脚本读取残留凭据
+const SENSITIVE_CACHE_KEYS = new Set(['tg_bot_token', 'webhook_url', 'register_invite_code']);
+
 // 获取所有配置（优先从缓存）
 export const getCachedConfigs = async (): Promise<Record<string, string>> => {
   // 尝试从缓存获取所有配置
@@ -107,9 +110,13 @@ export const getCachedConfigs = async (): Promise<Record<string, string>> => {
     const response = await getConfigs();
     if (response.code === 0 && response.data) {
       const configs = response.data;
-      // 将所有配置存入缓存
+      // 将非敏感配置存入缓存，敏感项从缓存中清理
       Object.entries(configs).forEach(([key, value]) => {
-        configCache.set(key, value as string);
+        if (SENSITIVE_CACHE_KEYS.has(key)) {
+          configCache.remove(key);
+        } else {
+          configCache.set(key, value as string);
+        }
       });
       return configs;
     }

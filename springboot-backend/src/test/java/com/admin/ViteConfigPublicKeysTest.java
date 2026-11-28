@@ -5,7 +5,11 @@ import com.admin.common.utils.JwtUtil;
 import com.admin.controller.BaseController;
 import com.admin.controller.ViteConfigController;
 import com.admin.entity.User;
+import com.admin.entity.ViteConfig;
 import com.admin.service.ViteConfigService;
+import com.admin.service.impl.ViteConfigServiceImpl;
+import com.alibaba.fastjson.JSON;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -76,6 +80,8 @@ class ViteConfigPublicKeysTest {
         assertFalse(denied(get("captcha_type", null)));
         assertFalse(denied(get("sub_url", null)));
         assertFalse(denied(get("register_enabled", null)));
+        assertFalse(denied(get("register_invite_required", null)));
+        assertTrue(denied(get("register_invite_code", null)), "注册邀请码原文绝不能向未登录访客暴露");
         assertTrue(denied(get("ip", null)), "面板 IP 不能给未登录的人");
         assertTrue(denied(get("anything_else", null)));
     }
@@ -83,12 +89,52 @@ class ViteConfigPublicKeysTest {
     @Test
     void riderTokenIsNotAdmin() {
         assertTrue(denied(get("ip", token(1))));
+        assertTrue(denied(get("register_invite_code", token(1))), "普通用户同样无权读取注册邀请码原文");
+        assertFalse(denied(get("register_invite_required", token(1))));
         assertFalse(denied(get("app_name", token(1))));
     }
 
     @Test
     void adminReadsEverything() {
         assertFalse(denied(get("ip", token(0))));
+        assertFalse(denied(get("register_invite_code", token(0))));
+    }
+
+    @Test
+    void publicInviteRequiredSignalNeverLeaksSecretInviteCodes() throws Exception {
+        ViteConfigServiceImpl realSvc = Mockito.spy(new ViteConfigServiceImpl());
+        ViteConfigController localCtl = new ViteConfigController();
+        Field s = BaseController.class.getDeclaredField("viteConfigService");
+        s.setAccessible(true);
+        s.set(localCtl, realSvc);
+
+        // 1. 未配置邀请码 -> 返回 "false"
+        Mockito.doReturn(null).when(realSvc).getOne(Mockito.any(QueryWrapper.class));
+        MockHttpServletRequest req = new MockHttpServletRequest();
+        Map<String, Object> query = new HashMap<>();
+        query.put("name", "register_invite_required");
+        R r1 = localCtl.getConfigByName(query, req);
+        assertEquals(0, r1.getCode());
+        assertEquals("false", ((ViteConfig) r1.getData()).getValue());
+
+        // 2. 配置了多个敏感邀请码 -> 仅返回 "true"，序列化结果绝不含邀请码原文，直接请求 register_invite_code 被拒绝
+        ViteConfig secretCfg = new ViteConfig();
+        secretCfg.setName("register_invite_code");
+        secretCfg.setValue("TOP_SECRET_ALPHA_999,VIP_OMEGA_777");
+        Mockito.doReturn(secretCfg).when(realSvc).getOne(Mockito.any(QueryWrapper.class));
+
+        R r2 = localCtl.getConfigByName(query, req);
+        assertEquals(0, r2.getCode());
+        assertEquals("true", ((ViteConfig) r2.getData()).getValue());
+        String json = JSON.toJSONString(r2);
+        assertFalse(json.contains("TOP_SECRET_ALPHA_999"), json);
+        assertFalse(json.contains("VIP_OMEGA_777"), json);
+
+        Map<String, Object> stealAttempt = new HashMap<>();
+        stealAttempt.put("name", "register_invite_code");
+        R r3 = localCtl.getConfigByName(stealAttempt, req);
+        assertTrue(denied(r3));
+        assertFalse(JSON.toJSONString(r3).contains("TOP_SECRET_ALPHA_999"));
     }
 
     @Test
